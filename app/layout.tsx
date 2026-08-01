@@ -1,17 +1,19 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
-// The type split is the thesis: serif for the person, mono for the record.
-const display = Fraunces({
-  variable: "--font-display",
+const sans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+
+const mono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+
+// Used only for the italic emphasis in headings — the one warm note in an
+// otherwise neutral system.
+const serif = Instrument_Serif({
+  variable: "--font-instrument-serif",
   subsets: ["latin"],
-  axes: ["SOFT", "WONK", "opsz"],
+  weight: "400",
+  style: ["italic", "normal"],
 });
-
-const sans = Inter({ variable: "--font-sans", subsets: ["latin"] });
-
-const mono = JetBrains_Mono({ variable: "--font-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Cadence — preserve your voice before you lose it",
@@ -27,9 +29,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${display.variable} ${sans.variable} ${mono.variable} h-full antialiased`}
+      className={`${sans.variable} ${mono.variable} ${serif.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-ink text-bone">{children}</body>
+      <body className="min-h-full bg-white text-neutral-900">{children}</body>
     </html>
   );
 }

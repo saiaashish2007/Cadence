@@ -127,8 +127,26 @@ lib/
   deepgram.ts  medplum.ts  moss.ts  stedi.ts
   claude.ts             the clinical reasoning layer
   phonetics.ts          grapheme→phoneme coverage, computed locally
-  store.ts              session state + audio (in-memory)
+  client-session.ts     the browser's copy of a session — the durable one
+  session-context.ts    resolves the session a request carries with it
+  fhir-projection.ts    the resources as they'd be written, without Medplum
+  store.ts              per-process cache for audio and local dev
 ```
+
+### State, and why the API routes are stateless
+
+Serverless instances do not persist between requests: the instance that provisions a CarePlan is
+often not the one that handles the next recording. So the browser owns the session and sends it
+with every call, and the server keeps nothing it can't rebuild.
+
+That leaves three durable stores, each doing what it's actually good at. The tab holds the session
+and the banked transcripts in `localStorage` — which is also how the decoder, opened in a second
+tab, sees the library. Audio lives in Medplum as a `Binary` and is streamed back through
+`/api/audio/<mediaId>`, so playback works on an instance that never saw the recording. The Moss
+index is pushed to the cloud after every take, so retrieval survives the same jump.
+
+`lib/store.ts` is still there, but only as a same-process cache — it is checked first because it's
+instant, and never depended on.
 
 ### Two design decisions worth defending
 
@@ -153,8 +171,9 @@ and the UI surfaces which banked phrases grounded each reading so a human can ch
 
 ## Known limits
 
-- **Session state is in memory.** Recordings live in the server process for the life of the run;
-  Medplum is the durable record. The swap is one file (`lib/store.ts`).
+- **Session state is client-owned.** It survives serverless and is shared across tabs, but not
+  across browsers or devices. A production deployment would rehydrate a session from Medplum on
+  sign-in rather than from `localStorage`.
 - **Synthetic voice provisioning is a stub.** We build and chart the corpus; wiring a cloning
   provider is a pluggable step, and message playback carries the demo without it.
 - **A banked voice is impersonation-grade material.** Access control, revocation, and consent are

@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { transcribe, deepgramConfigured } from '@/lib/deepgram';
 import { searchBank, mossConfigured, type PhraseMatch } from '@/lib/moss';
-import { getSession } from '@/lib/store';
+import { keywordMatches, parseLibrary } from '@/lib/retrieval';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -23,11 +23,18 @@ export async function POST(req: NextRequest) {
   let sessionId = '';
   let transcript = '';
   let asrConfidence: number | null = null;
+  let library: unknown = [];
 
   if (contentType.includes('multipart/form-data')) {
     const form = await req.formData();
     sessionId = String(form.get('sessionId') ?? '');
     const file = form.get('audio');
+
+    try {
+      library = JSON.parse(String(form.get('library') ?? '[]'));
+    } catch {
+      // The fallback index is a convenience; Moss is the real path.
+    }
 
     if (file instanceof Blob && deepgramConfigured) {
       try {
@@ -43,29 +50,37 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     sessionId = body.sessionId ?? '';
     transcript = body.transcript ?? '';
+    library = body.library ?? [];
   }
 
-  const session = getSession(sessionId);
-  if (!session) return NextResponse.json({ error: 'session not found' }, { status: 404 });
   if (!transcript.trim()) return NextResponse.json({ error: 'nothing to decode' }, { status: 400 });
 
   let matches: PhraseMatch[] = [];
   let latencyMs: number | null = null;
+  let engine = 'keyword-fallback';
 
-  if (mossConfigured) {
+  if (mossConfigured && sessionId) {
     try {
       const result = await searchBank(sessionId, transcript, 5);
       matches = result?.matches ?? [];
       latencyMs = result?.latencyMs ?? null;
+      if (matches.length) engine = 'moss';
     } catch (err) {
       console.error('[moss] searchBank failed:', err);
     }
   }
 
+  if (!matches.length) {
+    const fallback = keywordMatches(transcript, parseLibrary(library));
+    matches = fallback.matches;
+    latencyMs = fallback.latencyMs;
+  }
+
   return NextResponse.json({
+    sessionId,
     transcript,
     asrConfidence,
     matches,
-    retrieval: { engine: mossConfigured ? 'moss' : 'keyword-fallback', latencyMs },
+    retrieval: { engine, latencyMs },
   });
 }

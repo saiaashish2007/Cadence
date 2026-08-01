@@ -10,8 +10,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { transcribe, deepgramConfigured } from '@/lib/deepgram';
 import { saveRecording, saveSpeechBaseline, medplumConfigured } from '@/lib/medplum';
-import { addPhrase, mossConfigured } from '@/lib/moss';
-import { addRecording, getSession, serializeSession } from '@/lib/store';
+import { addPhrase, pushBank, mossConfigured } from '@/lib/moss';
+import { addRecording } from '@/lib/store';
+import { resolveSessionContext } from '@/lib/session-context';
 import { coverageOf } from '@/lib/phonetics';
 
 export const runtime = 'nodejs';
@@ -20,7 +21,6 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   const form = await req.formData();
 
-  const sessionId = String(form.get('sessionId') ?? '');
   const kind = (String(form.get('kind') ?? 'phonetic') === 'message' ? 'message' : 'phonetic') as
     | 'phonetic'
     | 'message';
@@ -29,8 +29,24 @@ export async function POST(req: NextRequest) {
   const expected = String(form.get('expected') ?? '');
   const file = form.get('audio');
 
-  const session = getSession(sessionId);
-  if (!session) return NextResponse.json({ error: 'session not found' }, { status: 404 });
+  let banked: unknown = [];
+  try {
+    banked = JSON.parse(String(form.get('banked') ?? '[]'));
+  } catch {
+    // A malformed library only costs coverage accuracy, not the recording.
+  }
+
+  const context = resolveSessionContext({
+    sessionId: form.get('sessionId'),
+    patientName: form.get('patientName'),
+    diagnosis: form.get('diagnosis'),
+    patientId: form.get('patientId'),
+    banked,
+  });
+
+  if (!context) {
+    return NextResponse.json({ error: 'session context is required' }, { status: 400 });
+  }
   if (!(file instanceof Blob)) {
     return NextResponse.json({ error: 'audio file is required' }, { status: 400 });
   }
@@ -62,22 +78,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'no transcript and no expected text' }, { status: 400 });
   }
 
-  const recording = addRecording(sessionId, {
-    kind,
-    transcript,
-    recipient,
-    occasion,
-    durationSeconds,
-    confidence,
-    contentType,
-    audio: Buffer.from(audio),
-  })!;
-
   // 2. Medplum — the banked voice becomes part of the medical record.
-  if (medplumConfigured && session.fhir) {
+  let fhir: { mediaId: string; communicationId?: string } | undefined;
+  if (medplumConfigured && context.patientId) {
     try {
       const saved = await saveRecording({
-        patientId: session.fhir.patientId,
+        patientId: context.patientId,
         audio,
         contentType,
         transcript,
@@ -86,17 +92,32 @@ export async function POST(req: NextRequest) {
         recipient,
         occasion,
       });
-      if (saved) recording.fhir = saved;
+      if (saved) fhir = saved;
     } catch (err) {
       console.error('[medplum] saveRecording failed:', err);
     }
   }
 
+  // The Media id doubles as the recording id so playback resolves from FHIR on
+  // any instance, not just the one that happens to hold the audio in memory.
+  const recording = addRecording(context.id, {
+    id: fhir?.mediaId,
+    kind,
+    transcript,
+    recipient,
+    occasion,
+    durationSeconds,
+    confidence,
+    contentType,
+    audio: Buffer.from(audio),
+    fhir,
+  });
+
   // 3. Moss — index it so the decoder can reach it at conversation speed.
   let indexedDocs: number | null = null;
   if (mossConfigured) {
     try {
-      const result = await addPhrase(sessionId, {
+      const result = await addPhrase(context.id, {
         id: recording.id,
         text: transcript,
         kind,
@@ -105,30 +126,34 @@ export async function POST(req: NextRequest) {
         mediaId: recording.id,
       });
       indexedDocs = result?.docCount ?? null;
+
+      // Publish the index so the caregiver side — a different tab, and very
+      // likely a different serverless instance — can load and query it.
+      await pushBank(context.id);
     } catch (err) {
       console.error('[moss] addPhrase failed:', err);
     }
   }
 
-  const coverage = coverageOf(session.recordings.map((r) => r.transcript));
+  const transcripts = [...context.banked.map((r) => r.transcript), transcript];
+  const coverage = coverageOf(transcripts);
 
   // Establish the speech baseline once there's enough signal to mean something.
   // In six months this row is the reason progression is measurable at all.
-  if (medplumConfigured && session.fhir && session.recordings.length === 3) {
+  if (medplumConfigured && context.patientId && transcripts.length === 3) {
     try {
-      const totalWords = session.recordings.reduce(
-        (n, r) => n + r.transcript.split(/\s+/).filter(Boolean).length,
+      const totalWords = transcripts.reduce(
+        (n, t) => n + t.split(/\s+/).filter(Boolean).length,
         0
       );
-      const totalMinutes =
-        session.recordings.reduce((n, r) => n + r.durationSeconds, 0) / 60 || 1;
-      const meanConfidence =
-        session.recordings.reduce((n, r) => n + r.confidence, 0) / session.recordings.length;
-
       await saveSpeechBaseline({
-        patientId: session.fhir.patientId,
-        wordsPerMinute: totalWords / totalMinutes,
-        meanConfidence,
+        patientId: context.patientId,
+        // Only this take is timed; earlier durations live on the client. Rate
+        // is derived from it rather than pretending to a fuller measurement.
+        wordsPerMinute: durationSeconds
+          ? transcript.split(/\s+/).filter(Boolean).length / (durationSeconds / 60)
+          : totalWords,
+        meanConfidence: confidence,
       });
     } catch (err) {
       console.error('[medplum] saveSpeechBaseline failed:', err);
@@ -136,12 +161,22 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
-    recording: { ...recording, audio: undefined, audioUrl: `/api/audio/${recording.id}` },
+    recording: {
+      id: recording.id,
+      kind: recording.kind,
+      transcript: recording.transcript,
+      recipient: recording.recipient,
+      occasion: recording.occasion,
+      durationSeconds: recording.durationSeconds,
+      confidence: recording.confidence,
+      mediaId: fhir?.mediaId,
+      fhir,
+      audioUrl: `/api/audio/${recording.id}`,
+    },
     coverage,
-    session: serializeSession(session),
     services: {
       deepgram: deepgramConfigured,
-      medplum: Boolean(recording.fhir),
+      medplum: Boolean(fhir),
       moss: indexedDocs !== null,
       indexedDocs,
     },

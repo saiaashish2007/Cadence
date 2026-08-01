@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { transcribe, deepgramConfigured } from '@/lib/deepgram';
 import { searchBank, mossConfigured, type PhraseMatch } from '@/lib/moss';
 import { decodeUtterance, claudeConfigured } from '@/lib/claude';
-import { getSession } from '@/lib/store';
+import { keywordMatches, parseLibrary } from '@/lib/retrieval';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -22,12 +22,19 @@ export async function POST(req: NextRequest) {
   let transcript = '';
   let context: string | undefined;
   let asrConfidence: number | null = null;
+  let library: unknown = [];
 
   if (contentType.includes('multipart/form-data')) {
     const form = await req.formData();
     sessionId = String(form.get('sessionId') ?? '');
     context = String(form.get('context') ?? '') || undefined;
     const file = form.get('audio');
+
+    try {
+      library = JSON.parse(String(form.get('library') ?? '[]'));
+    } catch {
+      // Falls through to whatever Moss returns.
+    }
 
     if (file instanceof Blob && deepgramConfigured) {
       try {
@@ -46,11 +53,9 @@ export async function POST(req: NextRequest) {
     sessionId = body.sessionId ?? '';
     transcript = body.transcript ?? '';
     context = body.context || undefined;
+    library = body.library ?? [];
   }
 
-  if (!getSession(sessionId)) {
-    return NextResponse.json({ error: 'session not found' }, { status: 404 });
-  }
   if (!transcript.trim()) {
     return NextResponse.json({ error: 'nothing to decode' }, { status: 400 });
   }
@@ -58,41 +63,23 @@ export async function POST(req: NextRequest) {
   // Moss: nearest banked phrases, measured.
   let matches: PhraseMatch[] = [];
   let retrievalMs: number | null = null;
+  let engine = 'keyword-fallback';
 
-  if (mossConfigured) {
+  if (mossConfigured && sessionId) {
     try {
       const result = await searchBank(sessionId, transcript, 5);
       matches = result?.matches ?? [];
       retrievalMs = result?.latencyMs ?? null;
+      if (matches.length) engine = 'moss';
     } catch (err) {
       console.error('[moss] searchBank failed:', err);
     }
   }
 
   if (!matches.length) {
-    // Without Moss, fall back to a keyword overlap over the same library so the
-    // decode flow still demonstrates end-to-end. Labelled as such in the UI.
-    const session = getSession(sessionId)!;
-    const terms = new Set(transcript.toLowerCase().split(/\W+/).filter((t) => t.length > 2));
-    const started = performance.now();
-    matches = session.recordings
-      .map((r) => {
-        const words = new Set(r.transcript.toLowerCase().split(/\W+/).filter(Boolean));
-        const overlap = [...terms].filter((t) => words.has(t)).length;
-        return {
-          id: r.id,
-          text: r.transcript,
-          kind: r.kind,
-          recipient: r.recipient,
-          occasion: r.occasion,
-          mediaId: r.id,
-          score: terms.size ? overlap / terms.size : 0,
-        };
-      })
-      .filter((m) => m.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-    retrievalMs = performance.now() - started;
+    const fallback = keywordMatches(transcript, parseLibrary(library));
+    matches = fallback.matches;
+    retrievalMs = fallback.latencyMs;
   }
 
   const decoding = await decodeUtterance({ transcript, matches, context });
@@ -102,7 +89,7 @@ export async function POST(req: NextRequest) {
     asrConfidence,
     matches,
     decoding,
-    retrieval: { engine: mossConfigured ? 'moss' : 'keyword-fallback', latencyMs: retrievalMs },
+    retrieval: { engine, latencyMs: retrievalMs },
     reasoningLive: claudeConfigured,
     playbackUrl: decoding.playBackMediaId ? `/api/audio/${decoding.playBackMediaId}` : null,
   });

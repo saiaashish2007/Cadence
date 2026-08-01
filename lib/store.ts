@@ -1,14 +1,14 @@
 /**
  * Server-side session state.
  *
- * Medplum is the system of record — but the audio also has to be servable back
- * to the browser instantly for the playback moment, and the session has to work
- * end-to-end even before FHIR credentials are wired up. So recordings live here
- * in memory for the life of the process and are mirrored to FHIR when Medplum
- * is configured.
+ * Medplum is the system of record. This is a per-process cache that makes the
+ * local demo fast and keeps the app usable before FHIR credentials are wired
+ * up — it is deliberately *not* load-bearing.
  *
- * In-memory is the right call for a demo and the wrong one for production; the
- * swap is this one file.
+ * On serverless the process is not stable: two requests from the same browser
+ * can land on different instances, so nothing here may be treated as durable.
+ * Every route accepts the session context from the client and falls back to
+ * this cache only as an optimisation.
  */
 
 import { randomUUID } from 'crypto';
@@ -46,9 +46,18 @@ export type Session = {
  */
 const globalStore = globalThis as typeof globalThis & {
   __cadenceSessions?: Map<string, Session>;
+  __cadenceAudio?: Map<string, { contentType: string; audio: Buffer }>;
 };
 
 const sessions: Map<string, Session> = (globalStore.__cadenceSessions ??= new Map());
+
+/**
+ * Audio keyed by recording id, independent of any session. Playback has to
+ * work on an instance that never saw the session that produced the recording,
+ * so this is checked before falling back to Medplum.
+ */
+const audioCache: Map<string, { contentType: string; audio: Buffer }> = (globalStore.__cadenceAudio ??=
+  new Map());
 
 export function createSession(input: {
   patientName: string;
@@ -56,7 +65,9 @@ export function createSession(input: {
   fhir?: { patientId: string; carePlanId: string };
 }): Session {
   const session: Session = {
-    id: randomUUID(),
+    // Reuse the Medplum patient id when there is one, so a session id is
+    // meaningful on any instance rather than only the one that minted it.
+    id: input.fhir?.patientId ?? randomUUID(),
     patientName: input.patientName,
     diagnosis: input.diagnosis,
     createdAt: new Date().toISOString(),
@@ -75,13 +86,27 @@ export function listSessions(): Session[] {
   return [...sessions.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function addRecording(sessionId: string, recording: Omit<Recording, 'id' | 'createdAt'>) {
-  const session = sessions.get(sessionId);
-  if (!session) return null;
+export function addRecording(
+  sessionId: string,
+  recording: Omit<Recording, 'id' | 'createdAt'> & { id?: string }
+): Recording {
+  const full: Recording = {
+    ...recording,
+    id: recording.id ?? randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
 
-  const full: Recording = { ...recording, id: randomUUID(), createdAt: new Date().toISOString() };
-  session.recordings.push(full);
+  cacheAudio(full.id, full.contentType, full.audio);
+  sessions.get(sessionId)?.recordings.push(full);
   return full;
+}
+
+export function cacheAudio(id: string, contentType: string, audio: Buffer) {
+  audioCache.set(id, { contentType, audio });
+}
+
+export function getCachedAudio(id: string) {
+  return audioCache.get(id);
 }
 
 export function findRecording(recordingId: string): Recording | undefined {

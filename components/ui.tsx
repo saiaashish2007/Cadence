@@ -1,54 +1,100 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
+
+/** Small uppercase mono label. The workhorse of the whole layout. */
+export function Label({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`font-mono text-[11px] uppercase tracking-widest text-neutral-500 ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function Card({
+  children,
+  className = '',
+  padded = true,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  padded?: boolean;
+}) {
+  return (
+    <section
+      className={`rounded-2xl border border-neutral-200/80 bg-white ${padded ? 'p-5 md:p-6' : ''} ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
 
 export function Panel({
   title,
   subtitle,
   children,
   accent,
+  action,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   accent?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
-    <section
-      className={`rounded-xl border ${
-        accent ? 'border-ember/40 bg-ember/5' : 'border-white/8 bg-ink-2'
-      } p-5`}
-    >
-      <header className="mb-4">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-bone-dim">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-bone-dim">{subtitle}</p>}
+    <Card className={accent ? 'border-teal-200 bg-teal-50/40' : ''}>
+      <header className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <Label className={accent ? 'text-teal-700' : ''}>{title}</Label>
+          {subtitle && (
+            <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">{subtitle}</p>
+          )}
+        </div>
+        {action}
       </header>
       {children}
-    </section>
+    </Card>
   );
 }
+
+const BUTTON_STYLES = {
+  primary:
+    'bg-neutral-900 text-white hover:bg-neutral-800 disabled:bg-neutral-200 disabled:text-neutral-400',
+  secondary:
+    'border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 disabled:text-neutral-400',
+  danger: 'bg-teal-600 text-white hover:bg-teal-700 disabled:bg-neutral-200 disabled:text-neutral-400',
+} as const;
 
 export function Button({
   children,
   variant = 'primary',
   className = '',
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'danger' }) {
-  const styles = {
-    primary: 'bg-ember text-ink hover:bg-ember-soft disabled:bg-ink-3 disabled:text-bone-dim',
-    ghost: 'border border-white/15 text-bone hover:border-white/35 disabled:text-bone-dim',
-    danger: 'bg-bone text-ink hover:bg-white',
-  }[variant];
-
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: keyof typeof BUTTON_STYLES;
+}) {
   return (
     <button
       {...props}
-      className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed ${styles} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-md px-5 py-3 text-sm font-medium transition-colors disabled:cursor-not-allowed ${BUTTON_STYLES[variant]} ${className}`}
     >
       {children}
     </button>
   );
 }
+
+const INPUT_CLASS =
+  'mt-2 w-full rounded-md border border-neutral-200 bg-white px-3.5 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-teal-500 focus:outline-none';
 
 export function Field({
   label,
@@ -57,31 +103,55 @@ export function Field({
 }: React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
   return (
     <label className="block">
-      <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-bone-dim">
-        {label}
-      </span>
-      <input
-        {...props}
-        className="mt-1.5 w-full rounded-lg border border-white/12 bg-ink px-3 py-2.5 text-sm text-bone placeholder:text-bone-dim/60 focus:border-ember/60 focus:outline-none"
-      />
-      {hint && <span className="mt-1 block text-xs text-bone-dim">{hint}</span>}
+      <Label>{label}</Label>
+      <input {...props} className={INPUT_CLASS} />
+      {hint && <span className="mt-1.5 block text-xs text-neutral-500">{hint}</span>}
+    </label>
+  );
+}
+
+export function TextArea({
+  label,
+  hint,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; hint?: string }) {
+  return (
+    <label className="block">
+      <Label>{label}</Label>
+      <textarea {...props} className={INPUT_CLASS} />
+      {hint && <span className="mt-1.5 block text-xs text-neutral-500">{hint}</span>}
+    </label>
+  );
+}
+
+export function Select({
+  label,
+  children,
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement> & { label: string }) {
+  return (
+    <label className="block">
+      <Label>{label}</Label>
+      <select {...props} className={INPUT_CLASS}>
+        {children}
+      </select>
     </label>
   );
 }
 
 /** Live level meter. Bars track real RMS, so silence actually reads as silence. */
 export function Waveform({ level, active }: { level: number; active: boolean }) {
-  const bars = 24;
+  const bars = 28;
   return (
-    <div className="flex h-12 items-center justify-center gap-[3px]" aria-hidden>
+    <div className="flex h-14 items-center justify-center gap-[3px]" aria-hidden>
       {Array.from({ length: bars }).map((_, i) => {
         // Center bars respond most, so the meter reads as a voice not a bar chart.
         const falloff = 1 - Math.abs(i - (bars - 1) / 2) / (bars / 1.6);
-        const height = active ? Math.max(0.12, level * falloff * 2.2) : 0.1;
+        const height = active ? Math.max(0.12, level * falloff * 2.2) : 0.08;
         return (
           <span
             key={i}
-            className={`w-[3px] rounded-full ${active ? 'bg-ember' : 'bg-white/15'}`}
+            className={`w-[3px] rounded-full ${active ? 'bg-teal-600' : 'bg-neutral-200'}`}
             style={{ height: `${Math.min(1, height) * 100}%`, transition: 'height 80ms linear' }}
           />
         );
@@ -90,28 +160,13 @@ export function Waveform({ level, active }: { level: number; active: boolean }) 
   );
 }
 
-/** Which sponsor services are actually live, stated plainly rather than implied. */
-export function ServiceStatus({
-  services,
-}: {
-  services: { name: string; live: boolean; note: string }[];
-}) {
+export function StatusDot({ live }: { live: boolean }) {
   return (
-    <ul className="grid gap-2 sm:grid-cols-2">
-      {services.map((s) => (
-        <li key={s.name} className="flex items-start gap-2.5 text-xs">
-          <span
-            className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-              s.live ? 'bg-sage' : 'bg-bone-dim/40'
-            }`}
-          />
-          <span>
-            <span className="font-mono uppercase tracking-wider text-bone">{s.name}</span>
-            <span className="ml-2 text-bone-dim">{s.live ? s.note : 'not configured — stubbed'}</span>
-          </span>
-        </li>
-      ))}
-    </ul>
+    <span
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+        live ? 'bg-emerald-500' : 'bg-neutral-300'
+      }`}
+    />
   );
 }
 
@@ -134,4 +189,71 @@ export function Percent({ value }: { value: number }) {
   }, [value]);
 
   return <>{Math.round(shown * 100)}</>;
+}
+
+export function ThinkingDots({ label }: { label: string }) {
+  return (
+    <p className="flex items-center gap-2.5 text-sm text-neutral-600">
+      <span className="inline-flex gap-[3px]" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="bar h-3.5 w-[3px] rounded-full bg-teal-600"
+            style={{ animationDelay: `${i * 140}ms` }}
+          />
+        ))}
+      </span>
+      {label}
+    </p>
+  );
+}
+
+const NAV = [
+  { href: '/bank', label: 'Bank a voice' },
+  { href: '/decode', label: 'Decoder' },
+];
+
+export function SiteHeader({ cta }: { cta?: { href: string; label: string } }) {
+  return (
+    <header className="sticky top-0 z-50 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+        <Link href="/" className="flex items-center gap-2.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-teal-600" />
+          <span className="text-[15px] font-semibold tracking-tight">Cadence</span>
+        </Link>
+
+        <nav className="hidden items-center gap-8 md:flex">
+          {NAV.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+
+        <Link
+          href={cta?.href ?? '/bank'}
+          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+        >
+          {cta?.label ?? 'Start a session'}
+        </Link>
+      </div>
+    </header>
+  );
+}
+
+export function SiteFooter() {
+  return (
+    <footer className="border-t border-neutral-200/80 bg-neutral-50">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 md:flex-row md:items-center md:justify-between">
+        <p className="text-sm text-neutral-600">
+          Cadence — voice and message banking at diagnosis.
+        </p>
+        <Label>Deepgram · Moss · Medplum · Stedi</Label>
+      </div>
+    </footer>
+  );
 }

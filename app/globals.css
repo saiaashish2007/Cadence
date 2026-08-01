@@ -1,38 +1,27 @@
 @import "tailwindcss";
 
 @theme {
-  /* Ink for the clinical surfaces, bone for the human ones, ember for the
-     moment that matters. Deliberately not a medical-software palette. */
-  --color-ink: #12131a;
-  --color-ink-2: #191b24;
-  --color-ink-3: #22252f;
-  --color-bone: #eae5db;
-  --color-bone-dim: #9a958c;
-  --color-ember: #e0603a;
-  --color-ember-soft: #f0a58c;
-  --color-sage: #7fa88a;
-  --color-sky: #7d9bc4;
-
-  --font-display: var(--font-display);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-instrument-serif);
 }
 
 body {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-.font-display {
-  font-family: var(--font-display), Georgia, serif;
-  font-variation-settings: "SOFT" 30, "WONK" 1, "opsz" 40;
+/* Serif italic carries the emotional line; everything else stays neutral. */
+.font-serif,
+[data-serif] {
+  font-family: var(--font-instrument-serif), Georgia, serif;
 }
 
-/* Waveform bars while recording. Slight per-bar offset so it reads as a
-   living signal rather than a spinner. */
+/* Level meter while recording. A per-bar offset so it reads as a living
+   signal rather than a spinner. */
 @keyframes pulse-bar {
   0%,
   100% {
-    transform: scaleY(0.25);
+    transform: scaleY(0.3);
   }
   50% {
     transform: scaleY(1);
@@ -58,19 +47,33 @@ body {
   animation: rise 420ms ease-out both;
 }
 
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 38s linear infinite;
+}
+
 ::selection {
-  background: var(--color-ember);
-  color: var(--color-ink);
+  background: #0d9488;
+  color: #fff;
 }
 
 *:focus-visible {
-  outline: 2px solid var(--color-ember-soft);
+  outline: 2px solid #0d9488;
   outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .bar,
-  .rise {
+  .rise,
+  .animate-marquee {
     animation: none;
   }
 }

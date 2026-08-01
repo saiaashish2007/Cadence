@@ -244,6 +244,36 @@ export async function saveSpeechBaseline(input: {
   });
 }
 
+/**
+ * Fetch a banked recording's audio back out of FHIR.
+ *
+ * This is what makes playback survive a serverless cold start: the bytes live
+ * in Medplum as a Binary, so any instance can serve them even though it never
+ * saw the request that recorded them.
+ */
+export async function readMediaAudio(
+  mediaId: string
+): Promise<{ contentType: string; data: Buffer } | null> {
+  const medplum = await getMedplum();
+  if (!medplum) return null;
+
+  const media = await medplum.readResource('Media', mediaId);
+  const url = media.content?.url;
+  if (!url) return null;
+
+  // Stored as a relative `Binary/<id>` reference; absolute URLs are passed
+  // through untouched in case that ever changes.
+  const target = url.startsWith('http')
+    ? url
+    : medplum.fhirUrl(...url.split('/')).toString();
+
+  const blob = await medplum.download(target);
+  return {
+    contentType: media.content?.contentType ?? 'audio/webm',
+    data: Buffer.from(await blob.arrayBuffer()),
+  };
+}
+
 /** Everything banked for a patient — powers both the chart view and the decoder. */
 export async function readVoiceBank(patientId: string) {
   const medplum = await getMedplum();

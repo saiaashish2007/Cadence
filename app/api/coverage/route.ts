@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkSgdCoverage, stediConfigured } from '@/lib/stedi';
-import { getSession } from '@/lib/store';
+import { resolveSessionContext } from '@/lib/session-context';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const session = getSession(body.sessionId);
-  if (!session) return NextResponse.json({ error: 'session not found' }, { status: 404 });
+  const context = resolveSessionContext(body);
+  if (!context) {
+    return NextResponse.json({ error: 'session context is required' }, { status: 400 });
+  }
 
-  const [given, ...rest] = session.patientName.split(/\s+/);
+  const [given, ...rest] = context.patientName.split(/\s+/);
 
   try {
     const result = await checkSgdCoverage({
@@ -23,7 +25,6 @@ export async function POST(req: NextRequest) {
       providerNpi: body.providerNpi || '1999999984',
     });
 
-    session.coverageResult = result;
     return NextResponse.json({ coverage: result, live: stediConfigured });
   } catch (err) {
     console.error('[stedi] eligibility failed:', err);
