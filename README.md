@@ -2,104 +2,132 @@
 
 ## 1. What Is This?
 
-**Cadence preserves a person’s voice while they still have it, then turns those recordings into a practical communication aid when speech becomes difficult or impossible.**
+About [5,000 Americans are told they have ALS every year](https://www.cdc.gov/als/abouttheregistrymain/index.html), and most will eventually lose the ability to speak as the disease reaches the muscles that produce speech. Another [12,290 people are diagnosed with laryngeal cancer annually](https://seer.cancer.gov/statfacts/html/laryn.html), where treatment can mean removing the voice box outright. In both cases there is a window — they still have their voice today, and they know they will lose it.
 
-For people diagnosed with ALS, head-and-neck cancer, or another condition that can affect speech, voice banking is usually introduced too late and asks them to record hundreds of sentences they will never say. Cadence makes the first session useful immediately:
+The two established preparations, **voice banking** and **message banking**, are drastically under-used, because patients are told too late and the process asks them to read hundreds of phonetically-chosen sentences alone at a computer, often *after* speech has already started to slur. Cadence compresses that into one twenty-minute session and makes the recordings useful the same day:
 
-1. Guides a person through 30 everyday phrases and meaningful personal messages.
-2. Stores each recording with the patient’s clinical record.
-3. Lets them tap those recordings later to speak in their own voice.
-4. Helps caregivers retrieve and confirm likely meanings when speech becomes unclear.
-5. Shows the durable-medical-equipment documentation path for a speech-generating device.
+1. Walks the patient through a fixed deck of 30 everyday phrases — introducing themselves, asking for water, saying where it hurts, saying goodnight
+2. Interleaves personal messages addressed to a specific person for a specific occasion
+3. Transcribes every take and tracks live ARPAbet phoneme coverage, so the corpus stays valid for a synthetic voice later
+4. Charts each recording to the patient's medical record as FHIR, with the audio itself stored as a `Binary`
+5. Turns the finished bank into a talking aid — someone asks a question, and the patient's own recorded voice answers
+6. Gives caregivers a decoder for speech that has become slurred, and records what each utterance actually meant
 
-The 30 phrases are selected for real use — asking for water, describing pain, saying goodnight — while still covering the English phonemes needed for future voice-cloning provision. Cadence plays real recordings, not a synthetic clone, so it is useful on day one.
+By the end of the session the patient has a phrase bank that plays in their real voice, the care team has a `CarePlan` with the recordings attached, and the family has the documentation path for a covered speech-generating device. Built on Deepgram (STT/TTS), Moss (sub-10ms retrieval), Medplum (FHIR), Anthropic (Claude Opus 5), and Stedi (270/271 eligibility), deployed on Vercel.
 
-Built for the Medplum Agentic Healthcare Hackathon at Y Combinator.
+**Cadence never synthesises the patient's voice.** Every sound it plays on their behalf is a recording they made. Nothing can sound not-quite-right at the moment it matters most.
 
 ## 2. Demo
 
 **Live app:** [cadence-delta-wheat.vercel.app](https://cadence-delta-wheat.vercel.app)
 
-**Sign in:** `user123` · **Password:** `medplum`
-
-Suggested two-minute flow:
-
-1. Choose **Bank a voice**, create a patient record, and bank two or three phrases.
-2. Open **Speak for me** and tap a phrase to play the original recording.
-3. Ask a prepared question such as “Can I get you anything?” to receive a safe shortlist of matching replies.
-4. Open **Decoder**, enter an unclear utterance, then confirm or correct its meaning. The confirmation becomes part of the patient’s record and improves later retrieval.
-
 ## 3. How We Used Deepgram, Moss, Medplum, Anthropic, and Stedi
 
-### Deepgram — guided audio capture
+### Deepgram (Speech Capture & Agent Voice)
 
-Deepgram transcribes each take and reads the next prompt aloud. The transcript is used to track the phrase bank and phoneme coverage; prompt audio keeps the session usable when reading is difficult.
+1. **Transcription of every take:** Each recording is posted to `nova-3` via the REST API directly rather than the SDK (`lib/deepgram.ts`), because the raw audio bytes are what we persist to FHIR anyway. The returned transcript — not the sentence we prompted — is what feeds phoneme coverage, so the progress bar reflects what was actually said.
+2. **The agent's spoken prompts:** `aura-2-thalia-en` reads each prompt aloud so the session works for someone who is tired or struggling to read a screen. This is deliberately the *agent's* voice; the patient's voice is never sent to TTS.
+3. **Empty-transcript guard:** Short or quiet takes occasionally return an empty transcript. Rather than banking a blank string, `/api/bank` falls back to the prompted sentence — an empty transcript would otherwise silently poison the coverage calculation for the rest of the session.
 
-### Moss — the personal phrase library
+### Moss (Sub-10ms Personal Retrieval)
 
-Each patient has a separate semantic index. Moss finds recordings that match a caregiver’s question for **Speak for me**, and finds likely banked phrases when a caregiver enters speech they could not understand. Confirmed meanings are indexed too, so the library adapts as speech changes.
+1. **One index per patient:** Each person gets a `voicebank-<patientId>` session index. Phrases are added in-process during capture with `addDocs` (no cloud round-trip), queried locally, and published with `pushIndex()` after *every* take — not at session end — so a different serverless instance, or the caregiver's tab, can load the same bank immediately.
+2. **Dual indexing, which is the whole trick behind "speak for me":** *"Are you in pain?"* shares almost no words with *"I'm in pain."* So each deck recording is indexed **twice** — once on the spoken text for the decoder, and once on the `triggers` list (the ways someone might ask that question) as a separate `kind: 'answer'` document whose `meaning` points back at the recording. Querying the second set with a caregiver's question returns the right audio in single-digit milliseconds.
+3. **Kind-filtered search:** Mixing those two document types ruins both searches, so `searchBank` takes an `only` filter and over-fetches `topK * 4` before filtering, so the filter doesn't eat the result set. Reported latency uses Moss's own `timeTakenInMs` rather than our wall clock, so the number isn't inflated by our await overhead.
+4. **Native-module handling:** `MossClient` holds native N-API resources, so it's cached on `globalThis` and imported dynamically inside the request path — a fresh client per module evaluation leaks a runtime handle and re-downloads every index.
 
-### Medplum — durable clinical record
+### Medplum (The Clinical Record)
 
-Cadence writes a `Patient`, `CarePlan`, `Condition`, `Media`, `Communication`, and `Observation` to Medplum. Audio is stored as FHIR `Binary` data so a later care team can retrieve it rather than depending on a browser tab.
+1. **Six resource types, each doing real work:** `Patient` and `Condition` from the intake form, a `CarePlan` for the preservation plan, a `Media` per recording, a `Communication` per personal message, and an `Observation` for the speech baseline. This is what makes a banked voice survive the move to hospice instead of being a folder on a laptop.
+2. **Audio as the source of truth:** Recordings are stored as FHIR `Binary` and streamed back through `/api/audio/<mediaId>`. Because playback resolves from Medplum rather than server memory, it works on an instance that never saw the recording — which is the only reason the app functions on Vercel at all.
+3. **Automatic speech baseline:** On the third recording, `/api/bank` writes an `Observation` with words-per-minute and mean ASR confidence. In six months, that single row is the reason progression is measurable rather than anecdotal.
+4. **Token rate-limit handling:** Medplum rate-limits its token endpoint at 160 points per interval, and on a hackathon day that bucket is shared with every other team on the same instance. We log in **once per process**, cache the client on `globalThis` so dev hot-reload doesn't silently burn another grant, and on a 429 respect the server's own `_msBeforeNext` instead of guessing a backoff.
 
-### Anthropic — restrained clinical language
+### Anthropic (Judgement, and Knowing When to Withhold)
 
-Anthropic produces the caregiver communication profile and ranks potential responses from the patient’s already-recorded phrases. It never generates a sentence for the patient to “say”; it can only offer their own recorded audio, and it waits for a tap when more than one answer could be true.
+1. **Shortlists instead of answers:** `suggestAnswers` (Claude Opus 5, adaptive thinking, structured output) receives the Moss candidates and returns up to three `recordingIds` to tap, plus a separate `autoplayId` — the one reply safe to play *without* being asked. That second bar is deliberately much higher and is met only when a question has one honest answer that doesn't depend on how the patient feels. *"What's your name?"* plays itself. *"Are you in pain?"* offers both banked sides and plays neither, because that answer is theirs to give.
+2. **A decoder calibrated toward doubt:** `decodeUtterance` is grounded strictly in the retrieved banked phrases and is prompted to prefer low confidence. A confident wrong guess here means the patient is misunderstood *again*, by someone who was trying to help — so the UI also surfaces which banked phrases grounded each reading, letting a human check the work.
+3. **Caregiver communication profiles:** `buildCommunicationProfile` writes a short briefing from the patient's own banked words — how they phrase things, who they mention, what to say back — for the night nurse who has two minutes before they have to try talking to them.
+4. **Deliberately removed from the hot path:** Routine deck progression originally ran through the model and cost ~8 seconds per prompt. It's now deterministic, and Claude is reserved for the three tasks above that genuinely require judgement.
 
-### Stedi — device-coverage workflow
+### Stedi (Device Coverage)
 
-Cadence can request 270/271 eligibility for durable medical equipment, including speech-generating devices. Without a Stedi credential, it deliberately displays a labelled sample response and the documentation checklist instead of presenting a fabricated eligibility result.
+1. **Real 270/271 for the device:** `/api/coverage` submits an eligibility request against service type codes `12` (DME purchase), `18` (rental), and `30` (overall plan coverage) — the codes that actually determine whether a speech-generating device is covered.
+2. **The part families never learn in time:** Medicare and most payers *do* cover SGDs as durable medical equipment, but only through a specific documentation path. Cadence returns that checklist alongside the benefit: SLP evaluation, physician order tied to the diagnosis, demonstration that lower-cost alternatives are insufficient, supplier trial report, and prior authorization under HCPCS `E2510`.
+3. **An honest fallback:** Stedi issues API keys only to work email addresses, which we could not obtain during the event. Without a key the route returns a sample 271 explicitly tagged `source: 'demo'`, and the UI labels it as such. We would rather show a labelled stub than a fabricated eligibility result in a screen about someone's insurance.
 
 ## 4. What We Built During the Hackathon
 
-We built one voice bank that serves three moments in the same person’s care:
+We started by throwing out the sentence list. Standard voice banking has people read lines like *"the big yellow jug of fresh orange juice is warming on the shelf"* — chosen purely for phonetic spread, useless for anything else. We replaced it with 30 phrases someone will actually need, then had to prove the deck still worked as a training corpus. It didn't, at first: our grapheme-to-phoneme approximation could never reach 100%, because English orthography doesn't reliably spell AY, DH, UH, ZH, or Z. The progress bar would have stalled short of complete forever no matter what was read. We added a `WORD_SOUNDS` lookup for the high-frequency words that carry those sounds, which closed the inventory.
 
-- **Bank:** a quick, guided capture session that autosaves locally and charts recordings to Medplum when configured.
-- **Speak for me:** a tap-to-speak board using the person’s actual recordings, plus semantic question matching that presents choices rather than guessing on sensitive questions.
-- **Decode:** a caregiver enters what they heard; Cadence retrieves the closest banked phrases and records a caregiver’s confirmed interpretation for future use.
+The hardest problem was state. The first Vercel deployment looked fine and then broke after a few recordings on a phone — the in-memory session store meant the instance that provisioned the `CarePlan` was usually not the instance handling the next take. We rewrote every API route to be stateless: the browser owns the session and sends it with each request, Medplum holds the audio as `Binary` so playback resolves anywhere, and Moss's index is pushed to the cloud after every recording rather than at session end. `lib/store.ts` survives only as a same-process cache that's checked first because it's instant and never depended on. Moss also refused to load on Vercel at all initially — an npm optional-dependency bug meant the native binding went missing — which we fixed by pinning the platform package, marking it external in `next.config.ts`, and deferring the import into the request path.
 
-The app is serverless-safe: the browser owns its active session, Medplum stores audio and clinical resources, and Moss persists the retrieval index. A recovery code lets a Medplum-backed record be restored on another device. A signed, httpOnly session cookie gates every patient-facing route and its APIs.
+With the bank durable, we built the two surfaces that use it. **Speak for me** needed the dual-indexing trick above, because matching a question to its answer by text similarity simply doesn't work. **Decode** got split into two requests after we measured them: Moss answers in single-digit milliseconds and Claude takes several seconds, so `/api/decode/retrieve` paints the banked matches immediately and the reading fills in underneath — running them as one call would have hidden the fastest number in the system behind the slowest. We then closed the loop: when a caregiver confirms what an utterance meant, `/api/confirm` writes the pair to FHIR as a `Communication` and indexes it in Moss on the **heard** form, so the next person who hears that sound retrieves the confirmed reading instead of starting from a guess. On one measured confirmation, `"wah-er coh"` went from *"a request for a cold drink of water"* at medium confidence to *"she wants her water colder — more ice, not a refill"* at high confidence, with the confirmed entry retrieved at score 1.000. That loop is the honest answer to a real problem: speech at month eighteen is not speech at diagnosis, and a library frozen at diagnosis decays.
+
+Last, we hardened it for judging. A banked voice is impersonation-grade material, so a signed httpOnly session cookie now gates every patient-facing page *and* the APIs behind them — gating only the pages would have left the data endpoints open to anyone who knew the paths. Banking autosaves on a debounce and flushes on `pagehide`, because iOS can kill a backgrounded tab without ever firing `unload`, which is exactly how you lose the tail of a recording session on a phone.
 
 ## 5. Tool Feedback
 
-### What worked well
+### Moss Feedback
 
-- **Medplum’s FHIR model** maps naturally to this workflow: `Media` holds the recording, `Communication` captures personal messages and caregiver confirmations, and `CarePlan` anchors voice preservation to the patient record.
-- **Moss** makes the interaction feel conversational instead of like a search form. Retrieval happens before slower reasoning so caregivers see grounded phrase matches immediately.
-- **Deepgram** keeps the capture flow hands-free enough to feel like a guided session rather than a recording assignment.
+**What worked well:** The sub-10ms claim holds, and the session-index model is the right shape for this problem — a personal phrase bank is small, private, and needs to answer inside a live conversation, which is precisely where a cloud vector database at 100–500ms fails. Being able to build an index in-process during capture and push it when convenient meant we never had to choose between speed and durability.
 
-### What could be improved
+**What could be improved:** Installing on Vercel failed with `Cannot find native binding`, caused by the known npm optional-dependency bug rather than anything in Moss itself — but the error surfaces at runtime as a module-load failure with no hint that a platform package is missing. Documenting the `@moss-dev/moss-core-<platform>` pin for serverless deploys would have saved us a deployment cycle. A note that `MossClient` holds native resources and should be cached across hot reloads would also help; we found that by leaking handles first.
 
-- **Stedi onboarding** currently requires a work email, which made a real eligibility credential impractical for a hackathon demo. The app clearly labels its fallback, but a production deployment needs live payer connections before claims advice is shown.
-- **Voice cloning is intentionally not implemented.** Real audio is safer and more emotionally faithful for the phrase bank, but a production product would need a consented provisioning path for a high-quality synthetic voice outside the 30 recorded phrases.
+### Medplum Feedback
 
-## Local Setup
+**What worked well:** The resource model mapped onto this domain without any bending. `Media` for a recording with its audio attachment, `Communication` for a message with a recipient and an occasion, `Observation` for a speech baseline, `CarePlan` to tie it together — we never once had to invent a custom resource or stuff data into an extension where a real field should have been. Storing audio as `Binary` is also what made the app work on serverless.
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+**What could be improved:** The token endpoint's rate limit (160 points/interval) is shared across everyone on the instance, which on a hackathon day is brutal and produces failures that look like auth bugs rather than throttling. The 429 does include `_msBeforeNext`, which is genuinely useful once you find it — but a client-side default that caches the login and honours that value automatically would stop every team from writing the same retry loop.
 
-Open [http://localhost:3000](http://localhost:3000), then sign in with `user123` / `medplum`.
+### Deepgram Feedback
 
-All integration keys are optional. Missing credentials use labelled fallbacks rather than silently faking a live service.
+**What worked well:** `nova-3` was accurate enough that we could trust transcripts as the input to phoneme coverage rather than assuming the prompted text was said correctly, which is the difference between a real progress bar and a fake one. `aura-2` was fast enough to narrate prompts without the session feeling like it was waiting on a server.
 
-| Environment variable | Enables |
-| --- | --- |
-| `DEEPGRAM_API_KEY` | Speech-to-text and prompt text-to-speech |
-| `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY` | Persistent semantic retrieval |
-| `MEDPLUM_CLIENT_ID`, `MEDPLUM_CLIENT_SECRET` | FHIR persistence and audio retrieval |
-| `ANTHROPIC_API_KEY` | Response ranking and communication profiles |
-| `STEDI_API_KEY` | Live 270/271 device eligibility |
-| `CADENCE_AUTH_SECRET` | Production session-cookie signing |
+**What could be improved:** Short takes — a two-word phrase like *"Thank you"* — sometimes return an empty transcript with a successful 200 rather than a low-confidence result. That's indistinguishable from silence at the API level, so every caller has to build the same fallback. A confidence-scored best guess, or an explicit "audio too short" signal, would be more useful than an empty string.
+
+### Anthropic Feedback
+
+**What worked well:** Structured outputs plus adaptive thinking made the safety-critical restraint expressible as a schema rather than a hope: `recordingIds` and `autoplayId` are separate fields with separate bars, and the model reliably left `autoplayId` empty on questions like *"are you in pain?"* while filling it for *"what's your name?"*. Getting that judgement right mattered more than anything else in the build.
+
+**What could be improved:** Latency made it the wrong tool for anything on the interaction path, which we learned by shipping an ~8s delay between recordings before making deck progression deterministic. That's an appropriate trade — but it does mean the useful design pattern here is "fast retrieval paints, model reasons underneath," and that pattern isn't really reflected in the getting-started material.
+
+### Stedi Feedback
+
+**What worked well:** The eligibility API is well-shaped for exactly this question, and the service-type-code model let us ask specifically about DME purchase and rental rather than just "is this person covered."
+
+**What could be improved:** API keys require a work email address, which made a real credential unobtainable for a student team during a weekend event. A sandbox key with synthetic payers, issuable to any address, would let hackathon teams demonstrate the integration honestly instead of shipping a labelled stub.
+
+## Live demo — Cadence
+
+**App:** [https://cadence-delta-wheat.vercel.app](https://cadence-delta-wheat.vercel.app)
+
+| | |
+|---|---|
+| **Sign in** | `user123` |
+| **Password** | `medplum` |
+| **Sample patient** | Any name — a `Patient` and `CarePlan` are provisioned on start |
+
+After sign-in, use **Bank a voice**, **Speak for me**, and **Decoder** in the header.
+
+The two-minute path: bank three or four phrases on **Bank a voice**, open **Speak for me** and tap one to hear the real recording, then ask *"Can I get you anything?"* and watch it narrow 30 phrases to three. Ask *"Are you in pain?"* to see it offer both sides and play neither. Finally, open **Decoder**, enter `wah-er coh`, and confirm what it meant — the confirmation is charted to FHIR and indexed for the next listener.
+
+For local setup and the full environment matrix, see [SETUP.md](./SETUP.md).
 
 ## Future Considerations
 
-1. Replace the shared demo credential with patient, clinician, and caregiver accounts plus auditable role-based access.
-2. Add explicit consent revocation and retention controls for voice recordings.
-3. Validate the phrase deck and decoder workflow with speech-language pathologists and people with progressive speech conditions.
-4. Integrate a consented voice-cloning provider for open-ended communication, without replacing the original recordings.
+### Per-User Accounts and a Real Threat Model
 
-Cadence is a hackathon prototype, not clinical advice or a production health-record system.
+The demo runs on one shared credential. A banked voice is impersonation-grade material, so the production version needs patient, clinician, and caregiver roles with auditable access, consent captured as a first-class FHIR resource, and revocation that actually removes playback rights rather than hiding a button. This is the single largest gap between the prototype and something that could touch a real patient.
+
+### Clinical Validation of the Deck
+
+The 30 phrases were chosen by us, checked for phoneme coverage in code, and never reviewed by a speech-language pathologist. The next step is validating both the deck and the decoder workflow with SLPs and with people living with progressive speech conditions — including whether the categories are right, whether the phrasing sounds like something a person would actually say, and whether the decoder's confidence calibration matches what caregivers need to act safely.
+
+### Consented Voice Provisioning
+
+The corpus reaches full phoneme coverage specifically so a synthetic voice can be built from it later, which would extend the patient past their 30 banked phrases into open-ended speech. We deliberately did not build this in a weekend: a cloned voice is the point at which consent, revocation, and misuse stop being design concerns and become legal ones. It should be a pluggable step gated on explicit, revocable consent — and it should extend the recordings, never replace them.
+
+---
+
+Cadence is a hackathon prototype built for the Medplum Agentic Healthcare Hackathon at Y Combinator. It is not a medical device, not clinical advice, and not a production health-record system.
