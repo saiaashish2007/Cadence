@@ -23,7 +23,7 @@ By the end of the session the patient has a phrase bank that plays in their real
 
 ## 2. Demo
 
-[Video](#)
+[Video](https://youtu.be/Ybc9i6t9J2g)
 
 ## 3. How We Used Deepgram, Moss, Medplum, Anthropic, and Stedi
 
