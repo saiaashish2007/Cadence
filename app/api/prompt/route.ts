@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveSessionContext } from '@/lib/session-context';
 import { coverageOf } from '@/lib/phonetics';
 import { nextBankingPrompt, claudeConfigured } from '@/lib/claude';
+import { ESSENTIALS } from '@/lib/essentials';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,6 +14,9 @@ export async function POST(req: NextRequest) {
   }
 
   const coverage = coverageOf(context.banked.map((r) => r.transcript));
+  const bankedEssentialIds = context.banked
+    .map((r) => r.essentialId)
+    .filter((id): id is string => Boolean(id));
 
   const prompt = await nextBankingPrompt({
     patientName: context.patientName,
@@ -24,7 +28,13 @@ export async function POST(req: NextRequest) {
       recipient: r.recipient,
       occasion: r.occasion,
     })),
+    bankedEssentialIds,
   });
 
-  return NextResponse.json({ prompt, coverage, reasoningLive: claudeConfigured });
+  return NextResponse.json({
+    prompt,
+    coverage,
+    deck: { total: ESSENTIALS.length, banked: new Set(bankedEssentialIds).size },
+    reasoningLive: claudeConfigured,
+  });
 }

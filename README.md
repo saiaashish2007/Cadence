@@ -32,11 +32,20 @@ still exists.**
 
 Check-in becomes the most important recording session of their life.
 
-And because a voice bank is only half the journey, the same library powers the other half: when
-speech is gone, a caregiver — or a night nurse, or an ER doctor — can search what this person
-actually banked to work out what they're reaching for now.
+And because a voice bank is only half the journey, the same library does the other half. When
+speech is gone it **speaks for them**: someone asks "can I get you anything?", and the phrases
+they recorded for exactly that get offered back for a single tap, played in their real voice.
+When speech is slurred rather than gone, it helps a night nurse or an ER doctor **decode** them,
+by searching what this person actually banked.
 
-> Before → preserve the voice. After → help others understand it.
+> Before → preserve the voice. After → speak with it, and help others understand it.
+
+The thirty phrases they read are the hinge. Standard voice banking has people read sentences
+picked purely for phonetic spread — *"the big yellow jug of fresh orange juice is warming on the
+shelf"* — sentences nobody ever needs to say. Cadence banks everyday speech instead: *"I'm
+thirsty, could I have a drink of water?"*, *"the pain is here"*, *"goodnight, sleep well."* Read
+end to end the deck still hits **100% phoneme coverage**, so it's a valid corpus for a synthetic
+voice later. But it doesn't have to wait for one. The recordings are the product on day one.
 
 ---
 
@@ -47,17 +56,21 @@ Each one is load-bearing. Remove any and a real part of the product stops workin
 | | Role |
 |---|---|
 | **Deepgram** | The conversation. STT tracks what was actually said so phoneme coverage is measured, not assumed; TTS is the agent's own voice guiding the session. |
-| **Moss** | Sub-10ms semantic retrieval over the personal phrase bank. This is the decode half's hot path — an AAC device is a live conversation aid, and cloud round-trips at 100–500ms don't fit inside a conversation. Uses Moss `session()` indexes: built in-process during capture, queried locally, pushed to cloud at session end. |
+| **Moss** | Sub-10ms semantic retrieval over the personal phrase bank. This is the hot path for both `/talk` and `/decode` — an AAC device is a live conversation aid, and cloud round-trips at 100–500ms don't fit inside a conversation. Uses Moss `session()` indexes: built in-process during capture, queried locally, pushed to cloud at session end. Each phrase is indexed twice, once on what she says and once on the questions it answers. |
 | **Medplum** | The banked voice as first-class clinical data — `CarePlan`, `Media`, `Communication`, `Observation`. This is what makes it survive the move to hospice instead of being a file on a laptop. |
 | **Stedi** | Real 270/271 eligibility for the speech-generating device. Medicare and most payers *do* cover SGDs as DME, but only through a specific documentation path most families never learn about. |
 
 ### The voice-cloning question, answered honestly
 
 High-fidelity personal voice cloning is not a 24-hour problem, and Deepgram's strength is the
-live agent rather than custom cloning. So the emotional core of this demo is **message banking**:
-real recorded audio, played back in the person's actual voice. Nothing to clone, nothing that can
-sound "off." Synthetic-voice provisioning is a pluggable step on top of a corpus we genuinely
-build and chart — the contribution is the capture pipeline, the record, and the covered path.
+live agent rather than custom cloning. So Cadence plays **real recorded audio** everywhere it
+speaks for someone. Nothing to clone, nothing that can sound "off" at the moment it matters most.
+
+This started as a constraint and turned into the design. Choosing the thirty phrases someone will
+actually need — rather than thirty phonetically convenient ones — means the recordings *are* the
+speech device, working on day one, with no synthesis in the path. The corpus still reaches 100%
+phoneme coverage, so provisioning a synthetic voice later remains a pluggable step. It would
+extend `/talk` past the thirty banked phrases; it would not replace them.
 
 ---
 
@@ -88,26 +101,31 @@ Get keys: [Medplum ClientApplication](https://app.medplum.com/ClientApplication)
 ## The two-minute demo
 
 1. **`/bank`** — enter a name and diagnosis. Note the consent panel; judges will ask, so it leads.
-2. The agent speaks its first prompt aloud (Deepgram TTS). Hit **Record**, read the sentence,
+2. The agent speaks its first prompt aloud (Deepgram TTS). The line on screen is one she'll
+   actually need — *"I'm thirsty. Could I have a drink of water, please?"* Hit **Record**, say it,
    **Stop & bank**.
-3. Watch three things move at once: the transcript comes back from Deepgram, **phoneme coverage
-   jumps**, and the pipeline panel confirms the FHIR write and the Moss index.
-4. Bank two or three more. Around the third, the agent switches to a **personal message** prompt —
-   *"tell your daughter what you'd want her to hear on her wedding day."* Record it.
-5. **The turn:** open **`/decode`** in a second tab. Type a slurred approximation of that message
-   — `tuh mai dordr wehdin`. Moss finds it in single-digit milliseconds, the interpretation
-   appears with a calibrated confidence, and **her actual recorded voice plays back**.
-6. **The loop:** decode something new — `wah-er coh`. The reading comes back at medium confidence.
-   Confirm what it actually meant. Decode the same thing again: high confidence now, grounded in
-   the confirmation, which is charted and indexed. *"It learns her, and it does it in the chart."*
-7. **`/profile/[id]`** — the briefing a night nurse reads. Written from her own banked words, with
+3. Watch three things move at once: the transcript comes back from Deepgram, the **deck counter
+   moves**, and the pipeline panel confirms the FHIR write and the Moss index.
+4. Bank two or three more. The agent breaks from the deck for a **personal message** — *"tell your
+   daughter what you'd want her to hear on her wedding day."* Record it.
+5. **The turn:** open **`/talk`**. Her phrases are a board now — tap one and **her real voice says
+   it out loud**. Then type what a nurse would ask: *"Can I get you anything?"* Moss matches the
+   question against the questions each phrase was banked to answer, and Cadence narrows thirty
+   phrases to three, and waits.
+6. **The restraint:** ask *"Are you in pain?"* It offers **both** "I'm in pain" and "I'm not in
+   any pain right now", and plays neither. *"It won't answer that one for her. Only she knows."*
+   Ask about last night's football and it offers nothing at all.
+7. **The loop:** **`/decode`**, for speech that's slurred rather than gone — `wah-er coh`. The
+   reading comes back at medium confidence. Confirm what it actually meant. Decode it again: high
+   confidence now, grounded in the confirmation, which is charted and indexed.
+8. **`/profile/[id]`** — the briefing a night nurse reads. Written from her own banked words, with
    the confirmed meanings as a glossary and the phrase book searchable underneath.
-8. **The system win:** back on `/bank`, hit **Check device coverage**. Stedi returns the plan's DME
+9. **The system win:** back on `/bank`, hit **Check device coverage**. Stedi returns the plan's DME
    benefit and the five-step SGD approval path. *"Her speech device is covered — here's the path."*
-9. **`/chart/[id]`** — the whole thing as FHIR resources.
+10. **`/chart/[id]`** — the whole thing as FHIR resources.
 
-The arc is heart → system. Step 5 is the moment; step 6 is the one judges haven't seen before;
-step 8 is the reason it's a product.
+The arc is heart → system. Step 5 is the moment, step 6 is the one that shows judgement, and
+step 9 is the reason it's a product. If you're short on time, cut step 7 rather than step 6.
 
 ---
 
@@ -117,15 +135,18 @@ step 8 is the reason it's a product.
 app/
   page.tsx              landing
   bank/                 guided capture session
+  talk/                 ★ speak-for-me — the phrase board and question matching
   decode/               caregiver decoder — lookup, then confirm what it meant
   profile/[id]/         the living communication profile
   chart/[id]/           FHIR resource view
   api/
     session/            provision Patient + CarePlan
-    prompt/             next banking prompt (adaptive, coverage-aware)
-    speak/              Deepgram TTS — the agent's voice
+    prompt/             next banking prompt — picks the line, from the deck
+    speak/              Deepgram TTS — the agent's voice during capture
     bank/               ★ the convergence: STT → FHIR → Moss index
     audio/[id]/         serve a banked recording back
+    library/            someone's banked phrases, no model call in the path
+    answer/             ★ a question in, a shortlist of their own replies out
     decode/retrieve/    Moss only — ~10ms, paints immediately
     decode/             the reading, grounded in those matches
     confirm/            ★ the learning loop: chart it, index it
@@ -135,6 +156,7 @@ app/
 lib/
   deepgram.ts  medplum.ts  moss.ts  stedi.ts
   claude.ts             the clinical reasoning layer
+  essentials.ts         the thirty phrases, and the questions each one answers
   phonetics.ts          grapheme→phoneme coverage, computed locally
   profile-sources.ts    rebuilds a profile out of FHIR
   client-session.ts     the browser's copy of a session — the durable one
@@ -143,13 +165,32 @@ lib/
   store.ts              per-process cache for audio and local dev
 ```
 
-### The three surfaces
+### The four surfaces
 
-**Bank** preserves the voice while there still is one. **Decode** is the live lookup: a listener
-hears something they can't parse, Moss finds the nearest banked phrases, and the reading is
-grounded in those. **Profile** is the part a stranger reads — a briefing written from this
-person's own words for the night nurse who has two minutes before they have to try talking to
-them.
+**Bank** preserves the voice while there still is one. **Talk** is what that voice becomes
+afterwards: a board of their own recordings to tap, and a matcher that turns a question someone
+asked into the replies they already banked for it. **Decode** is for speech that's slurred rather
+than gone — a listener hears something they can't parse, Moss finds the nearest banked phrases,
+and the reading is grounded in those. **Profile** is the part a stranger reads — a briefing
+written from this person's own words for the night nurse who has two minutes before they have to
+try talking to them.
+
+### Why `/talk` offers instead of answers
+
+The matching problem is not obvious: *"are you in pain?"* shares almost no words with *"I'm in
+pain."* So each deck recording is indexed **twice** in Moss — once on what she says, for the
+decoder, and once on the questions it was banked to answer, for this. Query the second set with
+the question and the right recording comes back in single-digit milliseconds.
+
+What the model does with those candidates is the part worth defending. It returns up to three
+replies to tap, and separately an `autoplayId` — the one reply safe to play *without* being
+asked. That second bar is deliberately much higher, and it's only met when the question has one
+honest answer that doesn't depend on how she feels. *"What's your name?"* plays itself. *"Are you
+in pain?"* offers both sides and waits, because that answer is hers to give and the system cannot
+know it.
+
+This is the restraint the whole surface rests on. It plays audio in her own voice, in front of the
+person who asked — a confident near-miss isn't a bad suggestion, it's words put in her mouth.
 
 The profile is *living*, which is the part that matters. When a caregiver decodes an utterance and
 confirms what it actually meant, that pair is written to FHIR as a `Communication` and indexed in

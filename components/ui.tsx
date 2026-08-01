@@ -210,6 +210,7 @@ export function ThinkingDots({ label }: { label: string }) {
 
 const NAV = [
   { href: '/bank', label: 'Bank a voice' },
+  { href: '/talk', label: 'Speak for me' },
   { href: '/decode', label: 'Decoder' },
 ];
 

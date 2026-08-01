@@ -6,7 +6,12 @@
  * than from whatever the tab that ran the session happens to still hold.
  */
 
-import { readVoiceBank, OBSERVED_UTTERANCE_CODE, VOICE_BANK_SYSTEM } from './medplum';
+import {
+  readVoiceBank,
+  ESSENTIAL_SYSTEM,
+  OBSERVED_UTTERANCE_CODE,
+  VOICE_BANK_SYSTEM,
+} from './medplum';
 
 /**
  * Only the fields this module reads, declared locally rather than pulling in
@@ -17,6 +22,7 @@ type Media = {
   id?: string;
   modality?: { coding?: Coding[] };
   content?: { title?: string };
+  identifier?: { system?: string; value?: string }[];
 };
 type Communication = {
   id?: string;
@@ -36,6 +42,7 @@ export type ProfilePhrase = {
   occasion?: string;
   mediaId?: string;
   audioUrl?: string;
+  essentialId?: string;
 };
 
 export type ObservedUtterance = {
@@ -79,6 +86,7 @@ export async function readProfileSources(patientId: string): Promise<{
       kind,
       mediaId: m.id!,
       audioUrl: `/api/audio/${m.id}`,
+      essentialId: m.identifier?.find((i) => i.system === ESSENTIAL_SYSTEM)?.value,
     };
   });
 

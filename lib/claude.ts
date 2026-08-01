@@ -18,6 +18,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Coverage } from './phonetics';
 import type { PhraseMatch } from './moss';
+import { ESSENTIALS, essentialById, renderEssential, type Essential } from './essentials';
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -38,8 +39,10 @@ export type BankingPrompt = {
   kind: 'phonetic' | 'message';
   /** Exactly what the agent says out loud. */
   spoken: string;
-  /** For phonetic prompts, the sentence to read verbatim. */
+  /** For deck prompts, the everyday phrase to say verbatim. */
   sentence?: string;
+  /** Which entry in the essentials deck this is. */
+  essentialId?: string;
   /** For message prompts, who it's for and when it would be played. */
   recipient?: string;
   occasion?: string;
@@ -54,13 +57,13 @@ const BANKING_SCHEMA = {
   properties: {
     kind: { type: 'string', enum: ['phonetic', 'message'] },
     spoken: { type: 'string' },
-    sentence: { type: 'string' },
+    essentialId: { type: 'string' },
     recipient: { type: 'string' },
     occasion: { type: 'string' },
     rationale: { type: 'string' },
     sessionComplete: { type: 'boolean' },
   },
-  required: ['kind', 'spoken', 'sentence', 'recipient', 'occasion', 'rationale', 'sessionComplete'],
+  required: ['kind', 'spoken', 'essentialId', 'recipient', 'occasion', 'rationale', 'sessionComplete'],
   additionalProperties: false,
 } as const;
 
@@ -71,9 +74,12 @@ reason this session exists, and it is why it cannot be a chore.
 
 You are choosing what they say next. Two kinds of prompt, interleaved:
 
-PHONETIC — a sentence to read aloud, chosen to cover phonemes the corpus is still missing. Keep \
-them short (8-14 words), natural to say, and never clinical or morbid. Never mention phonemes to \
-the patient; that is the clinician's view, not theirs.
+ESSENTIAL — a line from a fixed deck of thirty everyday phrases they will actually need once they \
+can no longer speak: introducing themselves, asking for water, saying they're in pain, saying \
+goodnight. You do NOT write these. You pick one by its id from the deck you're given, choosing \
+what makes sense next — work broadly in deck order, but it's good to group a few related ones \
+together, and to reach for something practical early so the session feels useful straight away. \
+Never pick an id that is already banked.
 
 MESSAGE — a personal message banked verbatim in their real voice, to be played back for years. \
 These are the point. Draw on what they have already banked so prompts build on each other rather \
@@ -84,10 +90,15 @@ generic sentiment. Vary the recipient and the occasion.
 Rules:
 - 'spoken' is exactly what the agent says out loud. Warm, unhurried, never saccharine, never \
 performatively sad. Short. You are a professional doing something that matters, not a greeting card.
+- For an ESSENTIAL, 'spoken' frames the line without reading the whole thing back at them — \
+"Here's one you'll want on a bad night. Say it the way you'd say it to a nurse." The phrase itself \
+is on screen; don't duplicate it in full.
+- Set kind to 'phonetic' for an essential and put its deck id in 'essentialId'. Set kind to \
+'message' for a personal message and leave 'essentialId' empty.
 - Do not congratulate them, do not thank them for sharing, do not remark on how meaningful this is.
-- Roughly one message prompt for every two phonetic prompts, but weight toward messages once \
-phoneme coverage is past 85%.
-- Set sessionComplete true only when coverage is at or above 92% AND at least four messages are banked.
+- Roughly one personal message for every three essentials, so the session keeps returning to the \
+part that matters most. Weight harder toward messages once most of the deck is banked.
+- Set sessionComplete true only when the whole deck is banked AND at least four messages are banked.
 - Always populate every field. Use an empty string for fields that do not apply to this prompt kind.`;
 
 export async function nextBankingPrompt(input: {
@@ -95,11 +106,15 @@ export async function nextBankingPrompt(input: {
   diagnosis: string;
   coverage: Coverage;
   banked: { kind: string; text: string; recipient?: string; occasion?: string }[];
+  /** Deck ids already recorded, so the agent never asks for one twice. */
+  bankedEssentialIds: string[];
 }): Promise<BankingPrompt> {
-  const c = client();
-  if (!c) return fallbackPrompt(input.banked.length, input.coverage);
-
+  const done = new Set(input.bankedEssentialIds);
+  const remaining = ESSENTIALS.filter((e) => !done.has(e.id));
   const messages = input.banked.filter((b) => b.kind === 'message');
+
+  const c = client();
+  if (!c) return deckPrompt(remaining[0], input.patientName, messages.length, remaining.length);
 
   const response = await c.messages.create({
     model: MODEL,
@@ -122,15 +137,19 @@ export async function nextBankingPrompt(input: {
           `Patient: ${input.patientName}`,
           `Diagnosis: ${input.diagnosis}`,
           ``,
-          `Phoneme coverage: ${(input.coverage.ratio * 100).toFixed(0)}%`,
-          `Still missing: ${input.coverage.missing.join(', ') || 'none'}`,
+          `Essentials deck — still to bank (${remaining.length} of ${ESSENTIALS.length}):`,
+          remaining.length
+            ? remaining.map((e) => `- id=${e.id} [${e.category}] "${e.text}"`).join('\n')
+            : '- the whole deck is banked',
           ``,
-          `Recordings so far: ${input.banked.length} (${messages.length} personal messages)`,
+          `Personal messages banked (${messages.length}):`,
           messages.length
             ? messages
                 .map((m) => `- [${m.recipient || 'unspecified'} / ${m.occasion || 'unspecified'}] "${m.text}"`)
                 .join('\n')
             : '- none yet',
+          ``,
+          `Phoneme coverage so far: ${(input.coverage.ratio * 100).toFixed(0)}%`,
           ``,
           `Choose the next prompt.`,
         ].join('\n'),
@@ -138,7 +157,58 @@ export async function nextBankingPrompt(input: {
     ],
   });
 
-  return parseJson<BankingPrompt>(response) ?? fallbackPrompt(input.banked.length, input.coverage);
+  const chosen = parseJson<BankingPrompt>(response);
+  if (!chosen) return deckPrompt(remaining[0], input.patientName, messages.length, remaining.length);
+
+  if (chosen.kind === 'message') {
+    return { ...chosen, sentence: undefined, essentialId: undefined };
+  }
+
+  // The deck is the source of truth for the words. A hallucinated or already
+  // banked id falls back to the next unbanked entry rather than inventing a
+  // sentence nobody will ever need to say.
+  const essential = chosen.essentialId ? essentialById(chosen.essentialId) : undefined;
+  const valid = essential && !done.has(essential.id) ? essential : remaining[0];
+  if (!valid) {
+    return deckPrompt(undefined, input.patientName, messages.length, 0);
+  }
+
+  return {
+    ...chosen,
+    essentialId: valid.id,
+    sentence: renderEssential(valid, input.patientName),
+    sessionComplete: remaining.length <= 1 && messages.length >= 4,
+  };
+}
+
+/** Deck order, no model call. Used as the fallback and without an API key. */
+function deckPrompt(
+  essential: Essential | undefined,
+  patientName: string,
+  messageCount: number,
+  remainingCount: number
+): BankingPrompt {
+  if (!essential) {
+    return {
+      kind: 'message',
+      spoken: 'The deck is done. Tell me something you would want your family to hear on a hard day.',
+      recipient: 'family',
+      occasion: 'a hard day',
+      rationale: 'Every everyday phrase is banked — the rest of the session is personal messages.',
+      sessionComplete: messageCount >= 4,
+    };
+  }
+
+  return {
+    kind: 'phonetic',
+    spoken: 'Here is the next one. Say it the way you would say it to someone in the room.',
+    essentialId: essential.id,
+    sentence: renderEssential(essential, patientName),
+    recipient: '',
+    occasion: '',
+    rationale: `${essential.category} · ${remainingCount} of ${ESSENTIALS.length} phrases left to bank.`,
+    sessionComplete: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +326,109 @@ export async function decodeUtterance(input: {
 }
 
 // ---------------------------------------------------------------------------
-// 3. The communication profile
+// 3. Answering for them
+// ---------------------------------------------------------------------------
+
+export type AnswerSuggestion = {
+  /** Recordings worth offering, best first. Empty when nothing fits. */
+  recordingIds: string[];
+  /**
+   * The one recording safe to play without being asked — set only when the
+   * question has a single possible honest answer. Empty otherwise.
+   */
+  autoplayId: string;
+  /** One short line for whoever is holding the screen. */
+  rationale: string;
+};
+
+const ANSWER_SCHEMA = {
+  type: 'object',
+  properties: {
+    recordingIds: { type: 'array', items: { type: 'string' } },
+    autoplayId: { type: 'string' },
+    rationale: { type: 'string' },
+  },
+  required: ['recordingIds', 'autoplayId', 'rationale'],
+  additionalProperties: false,
+} as const;
+
+const ANSWER_SYSTEM = `Someone has just asked a question out loud to a person who cannot speak. \
+That person has a library of sentences recorded in their own voice, from before they lost speech.
+
+Your job is to narrow that library down to the handful of replies worth offering, so they can pick \
+one with a single tap instead of hunting through thirty. You are not writing anything. You are \
+shortlisting.
+
+Two separate decisions:
+
+recordingIds — up to three replies that would make sense here, best first. Be generous: an option \
+they don't want costs one ignored button. Include both sides of a yes/no question when both are \
+banked, because you cannot know which is true and they can.
+
+autoplayId — the one reply that plays immediately, without waiting for a tap. This is a much \
+higher bar. Set it only when the question has exactly one honest answer that does not depend on \
+how they feel: "what's your name?" has one answer, "are you in pain?" does not. When in doubt \
+leave it empty — a wrong answer played aloud in their own voice, in front of the person who \
+asked, is words put in their mouth.
+
+Rules:
+- Use recordingIds exactly as given. Never invent one.
+- Return an empty list when nothing in the library is relevant. Don't reach for something merely \
+on-topic: "I'm in pain" is not a reply to "did you sleep well?"
+- rationale is for the person holding the screen, and is one short line.`;
+
+export async function suggestAnswers(input: {
+  question: string;
+  candidates: { recordingId: string; answer: string; asks: string }[];
+}): Promise<AnswerSuggestion> {
+  const c = client();
+  if (!c) {
+    return {
+      recordingIds: input.candidates.slice(0, 3).map((x) => x.recordingId),
+      autoplayId: '',
+      rationale: 'Closest banked replies — set ANTHROPIC_API_KEY for a considered shortlist.',
+    };
+  }
+
+  const response = await c.messages.create({
+    model: MODEL,
+    max_tokens: 2000,
+    system: ANSWER_SYSTEM,
+    thinking: { type: 'adaptive' },
+    output_config: {
+      effort: 'low',
+      format: { type: 'json_schema', schema: ANSWER_SCHEMA },
+    },
+    messages: [
+      {
+        role: 'user',
+        content: [
+          `Question just asked: "${input.question}"`,
+          ``,
+          `Recordings available, with the sorts of question each was banked to answer:`,
+          input.candidates.length
+            ? input.candidates
+                .map((x) => `- recordingId=${x.recordingId} says "${x.answer}" (answers: ${x.asks})`)
+                .join('\n')
+            : '- nothing banked',
+          ``,
+          `Which should be offered, and is any of them safe to play unprompted?`,
+        ].join('\n'),
+      },
+    ],
+  });
+
+  return (
+    parseJson<AnswerSuggestion>(response) ?? {
+      recordingIds: [],
+      autoplayId: '',
+      rationale: 'Could not shortlist safely.',
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 4. The communication profile
 // ---------------------------------------------------------------------------
 
 export type CommunicationProfile = {
@@ -394,38 +566,6 @@ function parseJson<T>(response: Anthropic.Message): T | null {
   } catch {
     return null;
   }
-}
-
-/** Keeps the session usable without an Anthropic key — clearly a stub, not silent. */
-function fallbackPrompt(bankedCount: number, coverage: Coverage): BankingPrompt {
-  const phonetic = [
-    'The quick brown fox jumps over five lazy dogs.',
-    'She thought the yellow bridge would shake in the wind.',
-    'Joyce enjoyed a huge chocolate cake by the shore.',
-    'Bring three sharp pencils and a thin blue notebook.',
-  ];
-  const useMessage = bankedCount > 0 && bankedCount % 3 === 2;
-
-  if (useMessage) {
-    return {
-      kind: 'message',
-      spoken: 'Tell me something you would want your family to hear on a hard day.',
-      recipient: 'family',
-      occasion: 'a hard day',
-      rationale: 'Stub prompt — set ANTHROPIC_API_KEY for adaptive prompt selection.',
-      sessionComplete: false,
-    };
-  }
-
-  return {
-    kind: 'phonetic',
-    spoken: 'Read this one out loud, in your normal voice.',
-    sentence: phonetic[bankedCount % phonetic.length],
-    recipient: '',
-    occasion: '',
-    rationale: `Stub prompt — coverage ${(coverage.ratio * 100).toFixed(0)}%. Set ANTHROPIC_API_KEY for adaptive selection.`,
-    sessionComplete: coverage.ratio >= 0.92 && bankedCount >= 8,
-  };
 }
 
 function fallbackProfile(patientName: string, phraseCount: number): CommunicationProfile {

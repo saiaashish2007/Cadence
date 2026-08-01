@@ -29,11 +29,14 @@ type Prompt = {
   kind: 'phonetic' | 'message';
   spoken: string;
   sentence?: string;
+  essentialId?: string;
   recipient?: string;
   occasion?: string;
   rationale: string;
   sessionComplete: boolean;
 };
+
+type Deck = { total: number; banked: number };
 
 type CoverageResult = {
   source: string;
@@ -58,6 +61,7 @@ export default function BankPage() {
   );
 
   const [prompt, setPrompt] = useState<Prompt | null>(null);
+  const [deck, setDeck] = useState<Deck | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [services, setServices] = useState<Record<string, unknown> | null>(null);
 
@@ -120,6 +124,7 @@ export default function BankPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? 'prompt failed');
         setPrompt(json.prompt);
+        setDeck(json.deck ?? null);
         setCoverage(json.coverage);
         if (speak) void speakPrompt(json.prompt.spoken);
       } catch (err) {
@@ -184,6 +189,7 @@ export default function BankPage() {
       if (session.patientId) form.set('patientId', session.patientId);
       form.set('kind', prompt.kind);
       form.set('expected', prompt.sentence ?? '');
+      if (prompt.essentialId) form.set('essentialId', prompt.essentialId);
       if (prompt.recipient) form.set('recipient', prompt.recipient);
       if (prompt.occasion) form.set('occasion', prompt.occasion);
       form.set('banked', JSON.stringify(session.banked));
@@ -203,6 +209,7 @@ export default function BankPage() {
         durationSeconds: json.recording.durationSeconds ?? 0,
         mediaId: json.recording.mediaId,
         audioUrl: json.recording.audioUrl,
+        essentialId: json.recording.essentialId ?? prompt.essentialId,
       };
 
       // Paint the results of this recording before waiting on the next prompt:
@@ -449,8 +456,30 @@ export default function BankPage() {
           {/* -------------------------------------------------- clinical side */}
           <div className="space-y-6">
             <Panel
+              title="Everyday phrases"
+              subtitle="Thirty things they'll actually need to say. These play back directly, in their own voice."
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="text-5xl font-semibold tracking-tight text-teal-700">
+                  {deck?.banked ?? 0}
+                </span>
+                <span className="text-xl text-neutral-400">of {deck?.total ?? 30}</span>
+              </div>
+              <div className="mt-4 h-2 rounded-full bg-neutral-100">
+                <div
+                  className="h-2 rounded-full bg-teal-600 transition-all duration-500"
+                  style={{ width: `${((deck?.banked ?? 0) / (deck?.total ?? 30)) * 100}%` }}
+                />
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-neutral-500">
+                Plus {messages.length} personal message{messages.length === 1 ? '' : 's'} — the
+                part no deck can write for them.
+              </p>
+            </Panel>
+
+            <Panel
               title="Phoneme coverage"
-              subtitle="Why the session can stop early instead of running 1,600 sentences."
+              subtitle="Tracked underneath, so the same recordings can build a synthetic voice later."
             >
               <p className="text-5xl font-semibold tracking-tight text-teal-700">
                 <Percent value={coverage?.ratio ?? 0} />
@@ -505,6 +534,12 @@ export default function BankPage() {
                 </li>
               </ul>
               <div className="mt-4 flex flex-col gap-1.5">
+                <Link
+                  href="/talk"
+                  className="font-mono text-[11px] uppercase tracking-widest text-teal-700 hover:underline"
+                >
+                  Speak with these phrases →
+                </Link>
                 <Link
                   href={`/profile/${chartId}`}
                   className="font-mono text-[11px] uppercase tracking-widest text-teal-700 hover:underline"

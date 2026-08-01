@@ -14,6 +14,7 @@ import { addPhrase, pushBank, mossConfigured } from '@/lib/moss';
 import { addRecording } from '@/lib/store';
 import { resolveSessionContext } from '@/lib/session-context';
 import { coverageOf } from '@/lib/phonetics';
+import { essentialById } from '@/lib/essentials';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
   const recipient = String(form.get('recipient') ?? '') || undefined;
   const occasion = String(form.get('occasion') ?? '') || undefined;
   const expected = String(form.get('expected') ?? '');
+  const essentialId = String(form.get('essentialId') ?? '') || undefined;
   const file = form.get('audio');
 
   let banked: unknown = [];
@@ -91,6 +93,7 @@ export async function POST(req: NextRequest) {
         kind,
         recipient,
         occasion,
+        essentialId,
       });
       if (saved) fhir = saved;
     } catch (err) {
@@ -111,6 +114,7 @@ export async function POST(req: NextRequest) {
     contentType,
     audio: Buffer.from(audio),
     fhir,
+    essentialId,
   });
 
   // 3. Moss — index it so the decoder can reach it at conversation speed.
@@ -124,8 +128,25 @@ export async function POST(req: NextRequest) {
         recipient,
         occasion,
         mediaId: recording.id,
+        essentialId,
       });
       indexedDocs = result?.docCount ?? null;
+
+      // Deck phrases get a second document indexed on the *questions* they
+      // answer, so someone asking "are you in pain?" reaches the recording of
+      // "I'm in pain" — which does not resemble the question at all.
+      const essential = essentialId ? essentialById(essentialId) : undefined;
+      if (essential) {
+        const answer = await addPhrase(context.id, {
+          id: `${recording.id}:asked`,
+          text: essential.triggers.join('. '),
+          kind: 'answer',
+          meaning: transcript,
+          mediaId: recording.id,
+          essentialId,
+        });
+        indexedDocs = answer?.docCount ?? indexedDocs;
+      }
 
       // Publish the index so the caregiver side — a different tab, and very
       // likely a different serverless instance — can load and query it.
@@ -169,6 +190,7 @@ export async function POST(req: NextRequest) {
       occasion: recording.occasion,
       durationSeconds: recording.durationSeconds,
       confidence: recording.confidence,
+      essentialId,
       mediaId: fhir?.mediaId,
       fhir,
       audioUrl: `/api/audio/${recording.id}`,

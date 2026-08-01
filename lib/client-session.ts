@@ -24,6 +24,8 @@ export type BankedRecording = {
   durationSeconds: number;
   mediaId?: string;
   audioUrl: string;
+  /** Which entry in the everyday-phrase deck this recording covers. */
+  essentialId?: string;
 };
 
 /** An utterance a caregiver heard and confirmed the meaning of. */
@@ -92,5 +94,6 @@ export function toLibrary(banked: BankedRecording[]) {
     recipient: r.recipient,
     occasion: r.occasion,
     mediaId: r.mediaId ?? r.id,
+    essentialId: r.essentialId,
   }));
 }

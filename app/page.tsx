@@ -30,22 +30,42 @@ const FEATURES = [
   {
     label: 'Guided capture',
     title: 'Twenty minutes, not 1,600 sentences.',
-    body: 'The agent speaks each prompt aloud and chooses the next one from what the corpus is still missing — interleaving phonetic sentences with the personal messages that are actually the point. It stops when it has enough.',
+    body: 'Thirty everyday phrases — asking for water, saying where it hurts, saying goodnight — interleaved with the personal messages that are actually the point. Standard voice banking has people read sentences nobody ever needs to say. These ones get used.',
     panel: (
       <div className="space-y-3">
-        <Label>Prompt · message</Label>
+        <Label>Prompt · everyday phrase</Label>
         <p className="text-[17px] leading-relaxed text-neutral-900">
-          &ldquo;Tell your daughter what you&rsquo;d want her to hear on her wedding day.&rdquo;
+          &ldquo;I&rsquo;m thirsty. Could I have a drink of water, please?&rdquo;
         </p>
         <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-          <Label>Phoneme coverage</Label>
+          <Label>Deck banked</Label>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-semibold tracking-tight">78</span>
-            <span className="text-sm text-neutral-500">%</span>
+            <span className="text-2xl font-semibold tracking-tight">23</span>
+            <span className="text-sm text-neutral-500">of 30</span>
           </div>
           <div className="mt-2 h-1.5 w-full rounded-full bg-neutral-200">
-            <div className="h-1.5 w-[78%] rounded-full bg-teal-600" />
+            <div className="h-1.5 w-[76%] rounded-full bg-teal-600" />
           </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    label: 'Speak for me',
+    title: 'Someone asks a question. They answer, in their own voice.',
+    body: 'Once the deck is banked, it becomes a talking aid. A nurse asks "are you hungry?" — Cadence matches the question to the reply that was recorded for it and plays the real recording out loud. Nothing is synthesised, so nothing can sound not-quite-right. If nothing fits, it says nothing rather than put words in their mouth.',
+    panel: (
+      <div className="space-y-3">
+        <Label>Asked</Label>
+        <p className="font-mono text-sm text-neutral-500">&ldquo;Can I get you anything?&rdquo;</p>
+        <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3">
+          <Label className="text-teal-700">Playing in her voice</Label>
+          <p className="mt-1.5 text-[15px] leading-relaxed text-neutral-900">
+            &ldquo;I&rsquo;m cold. Could I have another blanket?&rdquo;
+          </p>
+          <p className="mt-2 font-mono text-[11px] text-neutral-500">
+            matched in 4ms · her recording, not a clone
+          </p>
         </div>
       </div>
     ),
@@ -157,9 +177,9 @@ export default function Home() {
 
                 <p className="mt-6 max-w-xl text-base leading-relaxed text-neutral-600 md:text-lg">
                   When someone is diagnosed with ALS, or scheduled for a laryngectomy, there is a
-                  window: they still have their voice today, and they will lose it. Cadence turns
-                  voice banking into a twenty-minute conversation, charts it to FHIR, and finds the
-                  covered path to a speech device.
+                  window: they still have their voice today, and they will lose it. Cadence spends
+                  twenty minutes banking the thirty things they&rsquo;ll need to say — then speaks
+                  them out loud, in their own recorded voice, for as long as they need it to.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-3">
@@ -170,10 +190,10 @@ export default function Home() {
                     Bank a voice
                   </Link>
                   <Link
-                    href="/decode"
+                    href="/talk"
                     className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
                   >
-                    Open the decoder
+                    Speak for me
                   </Link>
                 </div>
               </div>

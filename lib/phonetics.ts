@@ -80,23 +80,88 @@ const RULES: [RegExp, string[]][] = [
   [/^z/, ['Z']],
 ];
 
+/**
+ * Whole-word pronunciations for common words the letter rules get wrong.
+ *
+ * English spelling hides several phonemes entirely: nothing in the alphabet
+ * spells AY, DH, UH or ZH reliably, so without these the inventory can never
+ * be completed no matter what is read — the progress bar would stall short of
+ * 100% forever. These are the high-frequency words that carry those sounds.
+ */
+const WORD_SOUNDS: Record<string, string[]> = {
+  // AY
+  i: ['AY'],
+  im: ['AY', 'M'],
+  id: ['AY', 'D'],
+  my: ['M', 'AY'],
+  like: ['L', 'AY', 'K'],
+  time: ['T', 'AY', 'M'],
+  night: ['N', 'AY', 'T'],
+  goodnight: ['G', 'UH', 'D', 'N', 'AY', 'T'],
+  right: ['R', 'AY', 'T'],
+  light: ['L', 'AY', 'T'],
+  tired: ['T', 'AY', 'ER', 'D'],
+  while: ['W', 'AY', 'L'],
+  // DH
+  the: ['DH', 'AH'],
+  this: ['DH', 'IH', 'S'],
+  that: ['DH', 'AE', 'T'],
+  thats: ['DH', 'AE', 'T', 'S'],
+  they: ['DH', 'EY'],
+  them: ['DH', 'EH', 'M'],
+  there: ['DH', 'EH', 'R'],
+  then: ['DH', 'EH', 'N'],
+  with: ['W', 'IH', 'DH'],
+  other: ['AH', 'DH', 'ER'],
+  another: ['AH', 'N', 'AH', 'DH', 'ER'],
+  // UH
+  could: ['K', 'UH', 'D'],
+  would: ['W', 'UH', 'D'],
+  should: ['SH', 'UH', 'D'],
+  put: ['P', 'UH', 'T'],
+  look: ['L', 'UH', 'K'],
+  good: ['G', 'UH', 'D'],
+  // ZH
+  television: ['T', 'EH', 'L', 'AH', 'V', 'IH', 'ZH', 'AH', 'N'],
+  usually: ['Y', 'UW', 'ZH', 'AH', 'L', 'IY'],
+  measure: ['M', 'EH', 'ZH', 'ER'],
+  // Z, hidden behind a written 's'
+  please: ['P', 'L', 'IY', 'Z'],
+  is: ['IH', 'Z'],
+  was: ['W', 'AA', 'Z'],
+  as: ['AE', 'Z'],
+  his: ['HH', 'IH', 'Z'],
+  has: ['HH', 'AE', 'Z'],
+  does: ['D', 'AH', 'Z'],
+  these: ['DH', 'IY', 'Z'],
+  those: ['DH', 'OW', 'Z'],
+  glasses: ['G', 'L', 'AE', 'S', 'IH', 'Z'],
+};
+
 /** Approximate the phoneme set present in a stretch of text. */
 export function phonemesIn(text: string): Set<string> {
   const found = new Set<string>();
-  let rest = text.toLowerCase().replace(/[^a-z\s]/g, '');
+  const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
 
-  while (rest.length > 0) {
-    if (rest[0] === ' ') {
-      rest = rest.slice(1);
+  for (const word of words) {
+    if (!word) continue;
+
+    const known = WORD_SOUNDS[word];
+    if (known) {
+      known.forEach((p) => found.add(p));
       continue;
     }
-    const rule = RULES.find(([pattern]) => pattern.test(rest));
-    if (!rule) {
-      rest = rest.slice(1);
-      continue;
+
+    let rest = word;
+    while (rest.length > 0) {
+      const rule = RULES.find(([pattern]) => pattern.test(rest));
+      if (!rule) {
+        rest = rest.slice(1);
+        continue;
+      }
+      rule[1].forEach((p) => found.add(p));
+      rest = rest.replace(rule[0], '');
     }
-    rule[1].forEach((p) => found.add(p));
-    rest = rest.replace(rule[0], '');
   }
 
   return found;

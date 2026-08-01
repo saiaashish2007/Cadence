@@ -24,6 +24,8 @@ export type Recording = {
   contentType: string;
   audio: Buffer;
   createdAt: string;
+  /** Which entry in the essentials deck this recording covers. */
+  essentialId?: string;
   /** Populated when the recording was mirrored into FHIR. */
   fhir?: { mediaId: string; communicationId?: string };
 };

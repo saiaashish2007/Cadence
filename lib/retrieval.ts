@@ -12,11 +12,19 @@ import type { PhraseMatch } from './moss';
 export type LibraryPhrase = {
   id: string;
   text: string;
-  kind: 'phonetic' | 'message';
+  kind: 'phonetic' | 'message' | 'answer';
   recipient?: string;
   occasion?: string;
   mediaId?: string;
+  essentialId?: string;
 };
+
+/** A phrase the person actually says, as opposed to a question-form document. */
+export type SpokenPhrase = LibraryPhrase & { kind: 'phonetic' | 'message' };
+
+export function isSpoken(phrase: LibraryPhrase): phrase is SpokenPhrase {
+  return phrase.kind !== 'answer';
+}
 
 export function parseLibrary(input: unknown): LibraryPhrase[] {
   if (!Array.isArray(input)) return [];
@@ -41,6 +49,8 @@ export function parseLibrary(input: unknown): LibraryPhrase[] {
         recipient: typeof item.recipient === 'string' && item.recipient ? item.recipient : undefined,
         occasion: typeof item.occasion === 'string' && item.occasion ? item.occasion : undefined,
         mediaId: typeof item.mediaId === 'string' && item.mediaId ? item.mediaId : id,
+        essentialId:
+          typeof item.essentialId === 'string' && item.essentialId ? item.essentialId : undefined,
       },
     ];
   });

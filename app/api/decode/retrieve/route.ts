@@ -61,7 +61,11 @@ export async function POST(req: NextRequest) {
 
   if (mossConfigured && sessionId) {
     try {
-      const result = await searchBank(sessionId, transcript, 5);
+      const result = await searchBank(sessionId, transcript, 5, [
+        'phonetic',
+        'message',
+        'observed',
+      ]);
       matches = result?.matches ?? [];
       latencyMs = result?.latencyMs ?? null;
       if (matches.length) engine = 'moss';

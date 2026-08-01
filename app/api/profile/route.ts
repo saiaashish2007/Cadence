@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildCommunicationProfile, claudeConfigured } from '@/lib/claude';
 import { medplumConfigured } from '@/lib/medplum';
 import { readProfileSources, type ObservedUtterance, type ProfilePhrase } from '@/lib/profile-sources';
-import { parseLibrary } from '@/lib/retrieval';
+import { isSpoken, parseLibrary } from '@/lib/retrieval';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -41,15 +41,18 @@ export async function POST(req: NextRequest) {
   // Falls back to the library the caller is holding, so the profile still works
   // before FHIR is wired up or for a session that never reached it.
   if (!phrases.length) {
-    phrases = parseLibrary(body.library).map((p) => ({
-      id: p.id,
-      text: p.text,
-      kind: p.kind,
-      recipient: p.recipient,
-      occasion: p.occasion,
-      mediaId: p.mediaId,
-      audioUrl: p.mediaId ? `/api/audio/${p.mediaId}` : undefined,
-    }));
+    phrases = parseLibrary(body.library)
+      .filter(isSpoken)
+      .map((p) => ({
+        id: p.id,
+        text: p.text,
+        kind: p.kind,
+        recipient: p.recipient,
+        occasion: p.occasion,
+        mediaId: p.mediaId,
+        audioUrl: p.mediaId ? `/api/audio/${p.mediaId}` : undefined,
+        essentialId: p.essentialId,
+      }));
     observed = Array.isArray(body.observed) ? (body.observed as ObservedUtterance[]) : [];
   }
 

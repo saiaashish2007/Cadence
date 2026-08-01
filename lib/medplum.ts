@@ -79,6 +79,7 @@ export async function getMedplum(): Promise<MedplumClient | null> {
 }
 
 export const VOICE_BANK_SYSTEM = 'https://cadence.health/fhir/voice-bank';
+export const ESSENTIAL_SYSTEM = 'https://cadence.health/fhir/essential-phrase';
 
 export type BankSession = {
   patientId: string;
@@ -150,6 +151,8 @@ export async function saveRecording(input: {
   /** Who the banked message is for, when it applies. */
   recipient?: string;
   occasion?: string;
+  /** Which entry in the everyday-phrase deck this covers. */
+  essentialId?: string;
 }): Promise<{ mediaId: string; communicationId?: string } | null> {
   const medplum = await getMedplum();
   if (!medplum) return null;
@@ -165,6 +168,11 @@ export async function saveRecording(input: {
     status: 'completed',
     subject: { reference: `Patient/${input.patientId}` },
     createdDateTime: new Date().toISOString(),
+    // Carries the deck id, so a device that never ran the session can still
+    // tell which everyday phrase this recording is.
+    identifier: input.essentialId
+      ? [{ system: ESSENTIAL_SYSTEM, value: input.essentialId }]
+      : undefined,
     duration: input.durationSeconds,
     type: {
       coding: [

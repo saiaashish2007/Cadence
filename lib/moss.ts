@@ -80,12 +80,16 @@ export type BankedPhrase = {
    * the same sound retrieves the confirmed reading directly — which is how the
    * library keeps up with speech that is still changing.
    */
-  kind: 'phonetic' | 'message' | 'observed';
+  kind: 'phonetic' | 'message' | 'observed' | 'answer';
   recipient?: string;
   occasion?: string;
   mediaId?: string;
-  /** Set on observed utterances: what it turned out to mean. */
+  /**
+   * On an observed utterance: what it turned out to mean. On an 'answer'
+   * document: the banked sentence that answers the indexed questions.
+   */
   meaning?: string;
+  essentialId?: string;
 };
 
 /** Index a freshly banked phrase. Runs locally — no cloud round-trip. */
@@ -103,6 +107,7 @@ export async function addPhrase(patientId: string, phrase: BankedPhrase) {
         occasion: phrase.occasion ?? '',
         mediaId: phrase.mediaId ?? '',
         meaning: phrase.meaning ?? '',
+        essentialId: phrase.essentialId ?? '',
       },
     },
   ]);
@@ -112,17 +117,26 @@ export async function addPhrase(patientId: string, phrase: BankedPhrase) {
 
 export type PhraseMatch = BankedPhrase & { score: number };
 
+const KINDS = new Set<string>(['phonetic', 'message', 'observed', 'answer']);
+
 /** The hot path: find the banked phrases closest to what was just said. */
 export async function searchBank(
   patientId: string,
   query: string,
-  topK = 5
+  topK = 5,
+  /**
+   * Which document kinds the caller wants. The bank holds two sorts of
+   * document — things the person says, and the questions those answer — and
+   * mixing them ruins both searches.
+   */
+  only?: BankedPhrase['kind'][]
 ): Promise<{ matches: PhraseMatch[]; latencyMs: number } | null> {
   const session = await openBank(patientId);
   if (!session) return null;
 
   const started = performance.now();
-  const result = await session.query(query, { topK });
+  // Over-fetch when filtering so the filter doesn't eat the whole result set.
+  const result = await session.query(query, { topK: only ? topK * 4 : topK });
   const wallClockMs = performance.now() - started;
 
   const matches: PhraseMatch[] = (result.docs ?? []).map((doc: QueryResultDocumentInfo) => {
@@ -131,18 +145,20 @@ export async function searchBank(
       id: doc.id,
       text: doc.text,
       score: doc.score,
-      kind:
-        meta.kind === 'phonetic' ? 'phonetic' : meta.kind === 'observed' ? 'observed' : 'message',
+      kind: KINDS.has(meta.kind as string) ? (meta.kind as BankedPhrase['kind']) : 'message',
       recipient: meta.recipient || undefined,
       occasion: meta.occasion || undefined,
       mediaId: meta.mediaId || undefined,
       meaning: meta.meaning || undefined,
+      essentialId: meta.essentialId || undefined,
     };
   });
 
+  const wanted = only ? matches.filter((m) => only.includes(m.kind)).slice(0, topK) : matches;
+
   // Prefer the engine's own timing when it reports one — that's the number the
   // sub-10ms claim actually refers to, without our own await overhead in it.
-  return { matches, latencyMs: result.timeTakenInMs ?? wallClockMs };
+  return { matches: wanted, latencyMs: result.timeTakenInMs ?? wallClockMs };
 }
 
 /** Persist the phrase bank to Moss Cloud so the caregiver side can load it. */

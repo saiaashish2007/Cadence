@@ -20,6 +20,8 @@ export type BankedPhrase = {
   recipient?: string;
   occasion?: string;
   mediaId?: string;
+  /** Which entry in the essentials deck this recording covers. */
+  essentialId?: string;
 };
 
 export type SessionContext = {
@@ -48,6 +50,8 @@ function coercePhrases(input: unknown): BankedPhrase[] {
         recipient: typeof item.recipient === 'string' && item.recipient ? item.recipient : undefined,
         occasion: typeof item.occasion === 'string' && item.occasion ? item.occasion : undefined,
         mediaId: typeof item.mediaId === 'string' && item.mediaId ? item.mediaId : undefined,
+        essentialId:
+          typeof item.essentialId === 'string' && item.essentialId ? item.essentialId : undefined,
       },
     ];
   });
@@ -75,6 +79,7 @@ export function resolveSessionContext(input: {
     recipient: r.recipient,
     occasion: r.occasion,
     mediaId: r.fhir?.mediaId ?? r.id,
+    essentialId: r.essentialId,
   }));
 
   const patientName =
