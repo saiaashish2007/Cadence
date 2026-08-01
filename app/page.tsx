@@ -5,14 +5,15 @@ const STATS = [
   { value: '4ms', label: 'Retrieval' },
   { value: '92%', label: 'Coverage target' },
   { value: '20min', label: 'Session length' },
-  { value: '4', label: 'FHIR resources' },
+  { value: '6', label: 'FHIR resources' },
 ];
 
 const SPONSORS = [
-  { name: 'Deepgram', note: 'nova-3 STT · aura-2 TTS' },
-  { name: 'Moss', note: 'sub-10ms retrieval' },
-  { name: 'Medplum', note: 'FHIR system of record' },
-  { name: 'Stedi', note: '270/271 eligibility' },
+  { name: 'Deepgram', note: 'listens and guides capture' },
+  { name: 'Moss', note: 'matches questions to replies' },
+  { name: 'Medplum', note: 'FHIR record + audio storage' },
+  { name: 'Anthropic', note: 'prompting and safe shortlists' },
+  { name: 'Stedi', note: 'device eligibility path' },
 ];
 
 const MARQUEE = [
@@ -233,7 +234,8 @@ export default function Home() {
                 </div>
 
                 <div className="border-t border-neutral-100 px-5 py-4">
-                  <ul className="grid gap-2 sm:grid-cols-2">
+                  <Label>Hackathon integrations</Label>
+                  <ul className="mt-3 grid gap-2 sm:grid-cols-2">
                     {SPONSORS.map((s) => (
                       <li key={s.name} className="flex items-center gap-2">
                         <StatusDot live />

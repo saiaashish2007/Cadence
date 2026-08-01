@@ -17,7 +17,12 @@ import {
   ThinkingDots,
   Waveform,
 } from '@/components/ui';
-import { saveSession, type BankedRecording, type CadenceSession } from '@/lib/client-session';
+import {
+  loadSessions,
+  saveSession,
+  type BankedRecording,
+  type CadenceSession,
+} from '@/lib/client-session';
 
 type Coverage = {
   covered: string[];
@@ -68,6 +73,8 @@ type CoverageResult = {
 
 export default function BankPage() {
   const [session, setSession] = useState<CadenceSession | null>(null);
+  const [savedSessions, setSavedSessions] = useState<CadenceSession[]>([]);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [patientName, setPatientName] = useState('');
   const [diagnosis, setDiagnosis] = useState<(typeof DIAGNOSES)[number]>('Amyotrophic lateral sclerosis (ALS)');
   const [otherDiagnosis, setOtherDiagnosis] = useState('');
@@ -155,6 +162,29 @@ export default function BankPage() {
     [speakPrompt]
   );
 
+  // A banking session already writes every take to localStorage and Medplum;
+  // this is the missing other half of that contract. Returning to /bank now
+  // offers the saved work instead of showing a blank intake form.
+  useEffect(() => {
+    const refreshSavedSessions = () => setSavedSessions(loadSessions());
+    refreshSavedSessions();
+    window.addEventListener('storage', refreshSavedSessions);
+    return () => window.removeEventListener('storage', refreshSavedSessions);
+  }, []);
+
+  async function resumeSession(saved: CadenceSession) {
+    persist(saved);
+    setSaveNotice(`Resumed ${saved.patientName}'s saved session.`);
+    await loadPrompt(saved, false);
+  }
+
+  function saveProgress() {
+    if (!session) return;
+    persist({ ...session, updatedAt: new Date().toISOString() });
+    setSavedSessions(loadSessions());
+    setSaveNotice('Progress saved. You can safely leave and resume this session later.');
+  }
+
   async function beginSession(e: React.FormEvent) {
     e.preventDefault();
     const diagnosisLabel =
@@ -206,6 +236,7 @@ export default function BankPage() {
         observed: [],
       };
       persist(next);
+      setSavedSessions(loadSessions());
       setBusy(null);
       await loadPrompt(next);
     } catch (err) {
@@ -316,6 +347,43 @@ export default function BankPage() {
             This takes about twenty minutes. Start with the details that make the voice bank useful
             to the next care team — everything here is written to the patient record.
           </p>
+
+          {savedSessions.length > 0 && (
+            <Card className="mt-8 border-teal-200 bg-teal-50/40">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <Label className="text-teal-700">Saved sessions</Label>
+                  <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+                    Recordings and intake details are saved as you go. Pick up where you left off.
+                  </p>
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-widest text-teal-700">
+                  {savedSessions.length} saved
+                </span>
+              </div>
+              <div className="mt-4 space-y-2">
+                {savedSessions.slice(0, 3).map((saved) => (
+                  <button
+                    key={saved.id}
+                    type="button"
+                    onClick={() => void resumeSession(saved)}
+                    className="flex w-full items-center justify-between gap-4 rounded-lg border border-teal-100 bg-white px-4 py-3 text-left transition-colors hover:bg-teal-50"
+                  >
+                    <span>
+                      <span className="block text-sm font-medium">{saved.patientName}</span>
+                      <span className="mt-1 block text-xs text-neutral-500">
+                        {saved.diagnosis} · {saved.banked.length} recording
+                        {saved.banked.length === 1 ? '' : 's'} saved
+                      </span>
+                    </span>
+                    <span className="font-mono text-[11px] uppercase tracking-widest text-teal-700">
+                      Resume →
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
 
           <form onSubmit={beginSession} className="mt-10 space-y-5">
             <Card className="bg-neutral-50">
@@ -453,13 +521,23 @@ export default function BankPage() {
             <Label className="text-teal-700">Session</Label>
             <h1 className="mt-2 text-2xl tracking-tight md:text-3xl">{session.patientName}</h1>
           </div>
-          <span className="inline-flex items-center gap-2 rounded-full border border-neutral-200 px-3 py-1.5">
-            <StatusDot live={session.fhirLinked} />
-            <Label>
-              {session.fhirLinked ? 'charting to Medplum' : 'FHIR projected (no Medplum key)'}
-            </Label>
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full border border-neutral-200 px-3 py-1.5">
+              <StatusDot live={session.fhirLinked} />
+              <Label>
+                {session.fhirLinked ? 'charting to Medplum' : 'FHIR projected (no Medplum key)'}
+              </Label>
+            </span>
+            <Button variant="secondary" onClick={saveProgress} disabled={Boolean(busy)}>
+              Save progress
+            </Button>
+          </div>
         </div>
+        {saveNotice && (
+          <p className="mt-3 text-sm text-teal-700" role="status">
+            {saveNotice}
+          </p>
+        )}
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1.35fr_1fr]">
           {/* -------------------------------------------------- capture */}
