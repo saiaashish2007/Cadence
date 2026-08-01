@@ -6,8 +6,8 @@ About [5,000 Americans are told they have ALS every year](https://www.cdc.gov/al
 
 The two established preparations, **voice banking** and **message banking**, are drastically under-used, because patients are told too late and the process asks them to read hundreds of phonetically-chosen sentences alone at a computer, often *after* speech has already started to slur. Cadence compresses that into one twenty-minute session and makes the recordings useful the same day:
 
-1. Walks the patient through a fixed deck of 30 everyday phrases — introducing themselves, asking for water, saying where it hurts, saying goodnight
-2. Interleaves personal messages addressed to a specific person for a specific occasion
+1. Walks the patient through a curated deck of everyday phrases — introducing themselves, asking for water, saying where it hurts, saying goodnight
+2. Interleaves personal messages addressed to a specific person for a specific occasion, with no limit on how many
 3. Transcribes every take and tracks live ARPAbet phoneme coverage, so the corpus stays valid for a synthetic voice later
 4. Charts each recording to the patient's medical record as FHIR, with the audio itself stored as a `Binary`
 5. Turns the finished bank into a talking aid — someone asks a question, and the patient's own recorded voice answers
@@ -16,6 +16,8 @@ The two established preparations, **voice banking** and **message banking**, are
 By the end of the session the patient has a phrase bank that plays in their real voice, the care team has a `CarePlan` with the recordings attached, and the family has the documentation path for a covered speech-generating device. Built on Deepgram (STT/TTS), Moss (sub-10ms retrieval), Medplum (FHIR), Anthropic (Claude Opus 5), and Stedi (270/271 eligibility), deployed on Vercel.
 
 **Cadence never synthesises the patient's voice.** Every sound it plays on their behalf is a recording they made. Nothing can sound not-quite-right at the moment it matters most.
+
+**On the size of the deck.** This MVP ships 30 everyday phrases. That number is a curation decision, not a technical ceiling — it's the shortest deck we could find that still reaches full phoneme coverage, so a first session fits in the twenty minutes a newly-diagnosed patient actually has. Nothing in the storage or retrieval path caps at 30: personal messages are already unbounded, Moss indexes per-patient with no limit, and each recording is its own FHIR `Media`. Growing the deck to hundreds of phrases, or tailoring it per condition and per person, is a content problem rather than an engineering one — see [Future Considerations](#a-deck-that-grows-past-thirty).
 
 ## 2. Demo
 
@@ -116,6 +118,12 @@ For local setup and the full environment matrix, see [SETUP.md](./SETUP.md).
 
 ## Future Considerations
 
+### A Deck That Grows Past Thirty
+
+Thirty is what one sitting can realistically produce while someone still has the energy and the voice for it, and it is deliberately the smallest deck that reaches full phoneme coverage. It is not the product. The deck is a static array in `lib/essentials.ts`, and everything downstream — the phrase board, the question matcher, the retrieval index, the FHIR writes — is already indifferent to how many entries it holds.
+
+The version worth building keeps banking across visits rather than treating it as one session: condition-specific decks (an ALS patient and a laryngectomy patient need different first sentences), phrases drawn from what this person's caregivers actually ask them, and the ability to add a line whenever they think of one. The interesting constraint at that scale isn't storage, it's ordering — deciding what is worth their voice next, when their voice is the resource running out. That is the point at which the model belongs back in the banking loop, ranking candidates against what they've already said, instead of walking a fixed list.
+
 ### Per-User Accounts and a Real Threat Model
 
 The demo runs on one shared credential. A banked voice is impersonation-grade material, so the production version needs patient, clinician, and caregiver roles with auditable access, consent captured as a first-class FHIR resource, and revocation that actually removes playback rights rather than hiding a button. This is the single largest gap between the prototype and something that could touch a real patient.
@@ -126,7 +134,7 @@ The 30 phrases were chosen by us, checked for phoneme coverage in code, and neve
 
 ### Consented Voice Provisioning
 
-The corpus reaches full phoneme coverage specifically so a synthetic voice can be built from it later, which would extend the patient past their 30 banked phrases into open-ended speech. We deliberately did not build this in a weekend: a cloned voice is the point at which consent, revocation, and misuse stop being design concerns and become legal ones. It should be a pluggable step gated on explicit, revocable consent — and it should extend the recordings, never replace them.
+The corpus reaches full phoneme coverage specifically so a synthetic voice can be built from it later, which would extend the patient past any banked deck, however large, into open-ended speech. We deliberately did not build this in a weekend: a cloned voice is the point at which consent, revocation, and misuse stop being design concerns and become legal ones. It should be a pluggable step gated on explicit, revocable consent — and it should extend the recordings, never replace them.
 
 ---
 
