@@ -1,65 +1,70 @@
-import Image from "next/image";
+import Link from 'next/link';
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-6 py-16">
+      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-ember">Cadence</p>
+
+      <h1 className="mt-6 font-display text-5xl leading-[1.05] sm:text-6xl">
+        Say &ldquo;I love you&rdquo; in your own voice,
+        <br />
+        <span className="text-ember">even after you can&rsquo;t speak.</span>
+      </h1>
+
+      <p className="mt-7 max-w-2xl text-lg leading-relaxed text-bone-dim">
+        When someone is diagnosed with ALS, or scheduled for a laryngectomy, there is a window: they
+        still have their voice today, and they will lose it. Voice banking exists to catch that
+        window — but people are told too late, and the process is 1,600 scripted sentences read
+        alone at a computer. Most never finish.
+      </p>
+
+      <p className="mt-4 max-w-2xl text-lg leading-relaxed text-bone-dim">
+        Cadence makes it a twenty-minute conversation instead, puts the result in the medical record
+        where the care team can find it, and answers the question every family asks next:{' '}
+        <span className="text-bone">will insurance cover the device?</span>
+      </p>
+
+      <div className="mt-12 grid gap-4 sm:grid-cols-2">
+        <Link
+          href="/bank"
+          className="group rounded-xl border border-ember/40 bg-ember/5 p-6 transition-colors hover:border-ember"
+        >
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ember">Before</p>
+          <h2 className="mt-3 font-display text-2xl">Bank a voice</h2>
+          <p className="mt-2 text-sm leading-relaxed text-bone-dim">
+            A guided capture session at diagnosis. Preserve the voice and the messages, chart both
+            to FHIR, and get a covered path to a speech device.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+          <p className="mt-4 font-mono text-xs text-ember opacity-0 transition-opacity group-hover:opacity-100">
+            Start session →
+          </p>
+        </Link>
+
+        <Link
+          href="/decode"
+          className="group rounded-xl border border-white/10 bg-ink-2 p-6 transition-colors hover:border-white/30"
+        >
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-sky">After</p>
+          <h2 className="mt-3 font-display text-2xl">Understand a voice</h2>
+          <p className="mt-2 text-sm leading-relaxed text-bone-dim">
+            For the family member, the night nurse, the ER doctor. Search what they actually banked
+            to work out what they&rsquo;re reaching for now.
+          </p>
+          <p className="mt-4 font-mono text-xs text-sky opacity-0 transition-opacity group-hover:opacity-100">
+            Open decoder →
+          </p>
+        </Link>
+      </div>
+
+      <p className="mt-12 max-w-2xl border-l-2 border-white/10 pl-4 text-sm leading-relaxed text-bone-dim">
+        Two halves of one journey. The banking half preserves the voice before it goes; the decoding
+        half uses that same library to help the people around them understand what&rsquo;s left.
+        The people who understand them most shouldn&rsquo;t be the only ones who can.
+      </p>
+
+      <footer className="mt-12 font-mono text-[11px] uppercase tracking-[0.16em] text-bone-dim">
+        Deepgram · Moss · Medplum · Stedi — Agentic Healthcare Hackathon, Y Combinator
+      </footer>
+    </main>
   );
 }

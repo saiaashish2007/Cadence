@@ -1,26 +1,76 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  /* Ink for the clinical surfaces, bone for the human ones, ember for the
+     moment that matters. Deliberately not a medical-software palette. */
+  --color-ink: #12131a;
+  --color-ink-2: #191b24;
+  --color-ink-3: #22252f;
+  --color-bone: #eae5db;
+  --color-bone-dim: #9a958c;
+  --color-ember: #e0603a;
+  --color-ember-soft: #f0a58c;
+  --color-sage: #7fa88a;
+  --color-sky: #7d9bc4;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-variation-settings: "SOFT" 30, "WONK" 1, "opsz" 40;
+}
+
+/* Waveform bars while recording. Slight per-bar offset so it reads as a
+   living signal rather than a spinner. */
+@keyframes pulse-bar {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.bar {
+  animation: pulse-bar 900ms ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise {
+  animation: rise 420ms ease-out both;
+}
+
+::selection {
+  background: var(--color-ember);
+  color: var(--color-ink);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-ember-soft);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .rise {
+    animation: none;
+  }
 }
