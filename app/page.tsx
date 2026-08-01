@@ -162,12 +162,8 @@ export default async function Home() {
   const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   const authed = session !== null;
 
-  const primary = authed
-    ? { href: '/bank', label: 'Bank a voice' }
-    : { href: '/login', label: 'Log in to start' };
-  const secondary = authed
-    ? { href: '/talk', label: 'Speak for me' }
-    : { href: '/login', label: 'Log in' };
+  const primary = { href: '/bank', label: 'Bank a voice' };
+  const secondary = { href: '/talk', label: 'Speak for me' };
   const closing = authed
     ? { href: '/decode', label: 'Open the decoder' }
     : { href: '/login', label: 'Log in' };
@@ -199,24 +195,24 @@ export default async function Home() {
                   them out loud, in their own recorded voice, for as long as they need it to.
                 </p>
 
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <Link
-                    href={primary.href}
-                    className="rounded-md bg-neutral-900 px-7 py-3.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
-                  >
-                    {primary.label}
-                  </Link>
-                  <Link
-                    href={secondary.href}
-                    className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
-                  >
-                    {secondary.label}
-                  </Link>
-                </div>
-
-                {!authed && (
-                  <p className="mt-4 font-mono text-[11px] text-neutral-500">
-                    Judges — user123 / medplum
+                {authed ? (
+                  <div className="mt-8 flex flex-wrap gap-3">
+                    <Link
+                      href={primary.href}
+                      className="rounded-md bg-neutral-900 px-7 py-3.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+                    >
+                      {primary.label}
+                    </Link>
+                    <Link
+                      href={secondary.href}
+                      className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
+                    >
+                      {secondary.label}
+                    </Link>
+                  </div>
+                ) : (
+                  <p className="mt-8 font-mono text-[11px] text-neutral-500">
+                    Use the sign-in button above to access the voice bank.
                   </p>
                 )}
               </div>
@@ -360,20 +356,22 @@ export default async function Home() {
             The window is open today.{' '}
             <em className="font-serif italic text-teal-700">Start the session.</em>
           </h2>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link
-              href={primary.href}
-              className="rounded-md bg-neutral-900 px-7 py-3.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
-            >
-              {primary.label}
-            </Link>
-            <Link
-              href={closing.href}
-              className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
-            >
-              {closing.label}
-            </Link>
-          </div>
+          {authed && (
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Link
+                href={primary.href}
+                className="rounded-md bg-neutral-900 px-7 py-3.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+              >
+                {primary.label}
+              </Link>
+              <Link
+                href={closing.href}
+                className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
+              >
+                {closing.label}
+              </Link>
+            </div>
+          )}
         </section>
       </main>
 
