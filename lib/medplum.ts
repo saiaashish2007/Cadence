@@ -87,6 +87,14 @@ export type BankSession = {
   conditionId: string;
 };
 
+export type BankSessionSummary = {
+  patientId: string;
+  carePlanId: string;
+  patientName: string;
+  diagnosis: string;
+  createdAt?: string;
+};
+
 /**
  * Provision a patient + their communication-preservation CarePlan. Called once
  * at the top of a banking session.
@@ -393,4 +401,46 @@ export async function readVoiceBank(patientId: string) {
   ]);
 
   return { patient, conditions, carePlans, media, communications, observations };
+}
+
+/**
+ * Cross-device recovery for the demo. Browser localStorage makes resuming
+ * immediate on the same device; Medplum is the durable source when someone
+ * switches from their phone to a laptop.
+ */
+export async function listBankSessions(): Promise<BankSessionSummary[]> {
+  const medplum = await getMedplum();
+  if (!medplum) return [];
+
+  const carePlans = await medplum.searchResources('CarePlan', {
+    status: 'active',
+    _count: '50',
+  });
+  const voiceBankPlans = carePlans.filter(
+    (plan) => plan.title === 'Communication preservation — voice and message banking'
+  );
+
+  const summaries: Array<BankSessionSummary | null> = await Promise.all(
+    voiceBankPlans.map(async (plan) => {
+      const patientId = plan.subject?.reference?.replace(/^Patient\//, '');
+      if (!patientId || !plan.id) return null;
+
+      const patient = await medplum.readResource('Patient', patientId);
+      const name = patient.name?.[0];
+      const patientName =
+        name?.text ?? [name?.given?.join(' '), name?.family].filter(Boolean).join(' ') ?? 'Unnamed patient';
+
+      return {
+        patientId,
+        carePlanId: plan.id,
+        patientName,
+        diagnosis: plan.addresses?.[0]?.display ?? 'Communication preservation',
+        createdAt: plan.created,
+      };
+    })
+  );
+
+  return summaries
+    .filter((summary): summary is BankSessionSummary => summary !== null)
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 }

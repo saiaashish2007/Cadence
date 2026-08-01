@@ -23,6 +23,7 @@ import {
   type BankedRecording,
   type CadenceSession,
 } from '@/lib/client-session';
+import { ESSENTIALS, renderEssential } from '@/lib/essentials';
 
 type Coverage = {
   covered: string[];
@@ -43,6 +44,14 @@ type Prompt = {
 };
 
 type Deck = { total: number; banked: number };
+
+type RemoteSession = {
+  patientId: string;
+  carePlanId: string;
+  patientName: string;
+  diagnosis: string;
+  createdAt?: string;
+};
 
 const DIAGNOSES = [
   'Amyotrophic lateral sclerosis (ALS)',
@@ -74,6 +83,7 @@ type CoverageResult = {
 export default function BankPage() {
   const [session, setSession] = useState<CadenceSession | null>(null);
   const [savedSessions, setSavedSessions] = useState<CadenceSession[]>([]);
+  const [remoteSessions, setRemoteSessions] = useState<RemoteSession[]>([]);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [patientName, setPatientName] = useState('');
   const [diagnosis, setDiagnosis] = useState<(typeof DIAGNOSES)[number]>('Amyotrophic lateral sclerosis (ALS)');
@@ -154,7 +164,29 @@ export default function BankPage() {
         setCoverage(json.coverage);
         if (speak) void speakPrompt(json.prompt.spoken);
       } catch (err) {
-        setError(String(err));
+        // Banking must not stop because the request for the *next* prompt had
+        // a transient failure. The deck lives in the client too, so it can
+        // keep moving and sync the completed recording on the next request.
+        const done = new Set(
+          current.banked.map((recording) => recording.essentialId).filter(Boolean)
+        );
+        const next = ESSENTIALS.find((essential) => !done.has(essential.id));
+        if (next) {
+          setPrompt({
+            kind: 'phonetic',
+            spoken: 'Here is the next phrase. Say it the way you would say it to someone in the room.',
+            sentence: renderEssential(next, current.patientName),
+            essentialId: next.id,
+            recipient: '',
+            occasion: '',
+            rationale: 'Using the local phrase deck while the next-prompt service reconnects.',
+            sessionComplete: false,
+          });
+          setDeck({ total: ESSENTIALS.length, banked: done.size });
+          setError('The next-prompt service was unavailable. You can keep recording safely.');
+        } else {
+          setError(String(err));
+        }
       } finally {
         setPromptLoading(false);
       }
@@ -172,10 +204,76 @@ export default function BankPage() {
     return () => window.removeEventListener('storage', refreshSavedSessions);
   }, []);
 
+  useEffect(() => {
+    // This is deliberately a lightweight index query. The recordings themselves
+    // are only fetched if the person chooses a record to recover.
+    fetch('/api/session?source=medplum')
+      .then((res) => res.json())
+      .then((json) => setRemoteSessions(Array.isArray(json.sessions) ? json.sessions : []))
+      .catch(() => {});
+  }, []);
+
   async function resumeSession(saved: CadenceSession) {
     persist(saved);
     setSaveNotice(`Resumed ${saved.patientName}'s saved session.`);
     await loadPrompt(saved, false);
+  }
+
+  async function recoverFromMedplum(remote: RemoteSession) {
+    setBusy('Restoring saved recordings from Medplum…');
+    setError(null);
+    try {
+      const res = await fetch('/api/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: remote.patientId, patientName: remote.patientName }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'could not restore this record');
+
+      const now = new Date().toISOString();
+      const restored: CadenceSession = {
+        id: remote.patientId,
+        patientId: remote.patientId,
+        carePlanId: remote.carePlanId,
+        patientName: json.patientName || remote.patientName,
+        diagnosis: remote.diagnosis,
+        fhirLinked: true,
+        createdAt: remote.createdAt ?? now,
+        updatedAt: now,
+        observed: [],
+        banked: (json.phrases ?? []).map((phrase: {
+          id: string;
+          text: string;
+          kind: 'phonetic' | 'message';
+          recipient?: string;
+          occasion?: string;
+          mediaId?: string;
+          audioUrl?: string;
+          essentialId?: string;
+        }) => ({
+          id: phrase.id,
+          kind: phrase.kind,
+          transcript: phrase.text,
+          recipient: phrase.recipient,
+          occasion: phrase.occasion,
+          confidence: 0,
+          durationSeconds: 0,
+          mediaId: phrase.mediaId ?? phrase.id,
+          audioUrl: phrase.audioUrl ?? `/api/audio/${phrase.mediaId ?? phrase.id}`,
+          essentialId: phrase.essentialId,
+        })),
+      };
+
+      persist(restored);
+      setSavedSessions(loadSessions());
+      setSaveNotice(`Restored ${restored.banked.length} recording${restored.banked.length === 1 ? '' : 's'} from Medplum.`);
+      setBusy(null);
+      await loadPrompt(restored, false);
+    } catch (err) {
+      setError(String(err));
+      setBusy(null);
+    }
   }
 
   function saveProgress() {
@@ -381,6 +479,49 @@ export default function BankPage() {
                     </span>
                   </button>
                 ))}
+              </div>
+            </Card>
+          )}
+
+          {remoteSessions.some(
+            (remote) => !savedSessions.some((saved) => saved.patientId === remote.patientId)
+          ) && (
+            <Card className="mt-5 border-teal-200 bg-teal-50/40">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <Label className="text-teal-700">Records saved in Medplum</Label>
+                  <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+                    Continue a voice bank started on another device. The audio and record stay in
+                    Medplum; this restores a working copy in this browser.
+                  </p>
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-widest text-teal-700">
+                  secure record
+                </span>
+              </div>
+              <div className="mt-4 space-y-2">
+                {remoteSessions
+                  .filter((remote) => !savedSessions.some((saved) => saved.patientId === remote.patientId))
+                  .slice(0, 5)
+                  .map((remote) => (
+                    <button
+                      key={remote.patientId}
+                      type="button"
+                      onClick={() => void recoverFromMedplum(remote)}
+                      disabled={Boolean(busy)}
+                      className="flex w-full items-center justify-between gap-4 rounded-lg border border-teal-100 bg-white px-4 py-3 text-left transition-colors hover:bg-teal-50 disabled:opacity-60"
+                    >
+                      <span>
+                        <span className="block text-sm font-medium">{remote.patientName}</span>
+                        <span className="mt-1 block text-xs text-neutral-500">
+                          {remote.diagnosis}
+                        </span>
+                      </span>
+                      <span className="font-mono text-[11px] uppercase tracking-widest text-teal-700">
+                        Restore →
+                      </span>
+                    </button>
+                  ))}
               </div>
             </Card>
           )}
