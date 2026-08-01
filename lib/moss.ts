@@ -74,10 +74,18 @@ export async function openBank(patientId: string): Promise<SessionIndex | null> 
 export type BankedPhrase = {
   id: string;
   text: string;
-  kind: 'phonetic' | 'message';
+  /**
+   * 'observed' is an utterance a caregiver heard later and confirmed the
+   * meaning of. It's indexed on the *heard* form, so the next person who hears
+   * the same sound retrieves the confirmed reading directly — which is how the
+   * library keeps up with speech that is still changing.
+   */
+  kind: 'phonetic' | 'message' | 'observed';
   recipient?: string;
   occasion?: string;
   mediaId?: string;
+  /** Set on observed utterances: what it turned out to mean. */
+  meaning?: string;
 };
 
 /** Index a freshly banked phrase. Runs locally — no cloud round-trip. */
@@ -94,6 +102,7 @@ export async function addPhrase(patientId: string, phrase: BankedPhrase) {
         recipient: phrase.recipient ?? '',
         occasion: phrase.occasion ?? '',
         mediaId: phrase.mediaId ?? '',
+        meaning: phrase.meaning ?? '',
       },
     },
   ]);
@@ -122,10 +131,12 @@ export async function searchBank(
       id: doc.id,
       text: doc.text,
       score: doc.score,
-      kind: meta.kind === 'phonetic' ? 'phonetic' : 'message',
+      kind:
+        meta.kind === 'phonetic' ? 'phonetic' : meta.kind === 'observed' ? 'observed' : 'message',
       recipient: meta.recipient || undefined,
       occasion: meta.occasion || undefined,
       mediaId: meta.mediaId || undefined,
+      meaning: meta.meaning || undefined,
     };
   });
 

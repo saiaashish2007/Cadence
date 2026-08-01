@@ -71,6 +71,27 @@ const FEATURES = [
     ),
   },
   {
+    label: 'Living profile',
+    title: 'The two minutes a night nurse actually has.',
+    body: 'Every person gets a profile written from their own banked words: how they phrase things, who they mention, what to say back. When a caregiver decodes an utterance and confirms what it meant, that pair is charted and indexed — so the profile tracks speech as it changes instead of freezing at diagnosis.',
+    panel: (
+      <div className="space-y-3">
+        <Label>Confirmed meanings</Label>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+          <p className="font-mono text-[11px] text-neutral-500">heard &ldquo;wah-er coh&rdquo;</p>
+          <p className="mt-1 text-[15px]">She wants the water colder, not more of it.</p>
+        </div>
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+          <p className="font-mono text-[11px] text-neutral-500">heard &ldquo;mai-uh&rdquo;</p>
+          <p className="mt-1 text-[15px]">Maya — her daughter. She never says &ldquo;my daughter&rdquo;.</p>
+        </div>
+        <p className="text-xs leading-relaxed text-neutral-500">
+          Each confirmation is a FHIR Communication and a new entry in the retrieval index.
+        </p>
+      </div>
+    ),
+  },
+  {
     label: 'Clinical record',
     title: 'A banked voice that survives the move to hospice.',
     body: 'Every recording is written to Medplum as Media, every message as Communication, with a CarePlan for the preservation plan and an Observation for the speech baseline. Not a folder on a laptop — a record the next care team can find.',
@@ -224,11 +245,16 @@ export default function Home() {
         <section className="mx-auto max-w-6xl px-6 py-20 md:py-28">
           <Label>Platform</Label>
           <h2 className="mt-4 max-w-3xl text-3xl leading-tight tracking-tight md:text-4xl">
-            Two halves of one journey.{' '}
+            One library, three jobs.{' '}
             <em className="font-serif italic text-neutral-500">
-              Before preserves the voice; after helps others understand it.
+              Preserve the voice, then help everyone else understand it.
             </em>
           </h2>
+          <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-neutral-600">
+            The phrases someone banks at diagnosis are the same phrases that, years later, let a
+            stranger work out what they&rsquo;re asking for. The people who understand them most
+            shouldn&rsquo;t be the only ones who can.
+          </p>
 
           <div className="mt-14 space-y-24 md:mt-20 md:space-y-32">
             {FEATURES.map((feature, i) => (

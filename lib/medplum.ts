@@ -244,6 +244,50 @@ export async function saveSpeechBaseline(input: {
   });
 }
 
+export const OBSERVED_UTTERANCE_CODE = 'observed-utterance';
+
+/**
+ * Record what a caregiver confirmed this person actually meant.
+ *
+ * This is the entry that makes the profile a living document rather than a
+ * snapshot of one recording session. Speech drifts; the way someone says
+ * "I'm cold" at month eighteen is not how they said it at diagnosis. Each
+ * confirmation is a labelled pair — what it sounded like, what it meant — and
+ * it belongs in the record because the next nurse needs it more than we do.
+ */
+export async function saveObservedUtterance(input: {
+  patientId: string;
+  heard: string;
+  meaning: string;
+  situation?: string;
+  confirmedBy?: string;
+}) {
+  const medplum = await getMedplum();
+  if (!medplum) return null;
+
+  const communication = await medplum.createResource({
+    resourceType: 'Communication',
+    status: 'completed',
+    subject: { reference: `Patient/${input.patientId}` },
+    sender: { reference: `Patient/${input.patientId}` },
+    sent: new Date().toISOString(),
+    category: [
+      {
+        coding: [{ system: VOICE_BANK_SYSTEM, code: OBSERVED_UTTERANCE_CODE }],
+        text: 'Observed utterance with caregiver-confirmed meaning',
+      },
+    ],
+    topic: input.situation ? { text: input.situation } : undefined,
+    payload: [{ contentString: input.meaning }, { contentString: `heard: ${input.heard}` }],
+    note: [
+      { text: `Heard as: "${input.heard}"` },
+      ...(input.confirmedBy ? [{ text: `Confirmed by: ${input.confirmedBy}` }] : []),
+    ],
+  });
+
+  return { communicationId: communication.id! };
+}
+
 /**
  * Fetch a banked recording's audio back out of FHIR.
  *

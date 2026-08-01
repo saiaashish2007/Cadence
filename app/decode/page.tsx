@@ -15,7 +15,12 @@ import {
   ThinkingDots,
   Waveform,
 } from '@/components/ui';
-import { loadSessions, toLibrary, type CadenceSession } from '@/lib/client-session';
+import {
+  loadSessions,
+  saveSession,
+  toLibrary,
+  type CadenceSession,
+} from '@/lib/client-session';
 
 type Match = {
   id: string;
@@ -64,6 +69,10 @@ export default function DecodePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The confirmation loop: what the caregiver says it actually meant.
+  const [correction, setCorrection] = useState('');
+  const [confirmState, setConfirmState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
   const recorder = useRecorder();
 
   // Profiles come from the browser, not the server: the banking tab wrote them
@@ -98,6 +107,8 @@ export default function DecodePage() {
     async (body: FormData | object) => {
       setError(null);
       setResult(null);
+      setCorrection('');
+      setConfirmState('idle');
       setBusy('Searching their banked library…');
 
       const library = toLibrary(selected?.banked ?? []);
@@ -142,6 +153,44 @@ export default function DecodePage() {
     },
     [sessionId, context, selected]
   );
+
+  /**
+   * Teach the library. The pair is charted to FHIR and indexed on the heard
+   * form, so the next person who hears this gets the confirmed reading rather
+   * than starting from a guess again.
+   */
+  async function confirmMeaning(meaning: string) {
+    if (!result || !selected || !meaning.trim()) return;
+    setConfirmState('saving');
+    setError(null);
+    try {
+      const res = await fetch('/api/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: selected.id,
+          patientId: selected.patientId,
+          heard: result.transcript,
+          meaning,
+          situation: context || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'could not save the confirmation');
+
+      const next: CadenceSession = {
+        ...selected,
+        observed: [json.observed, ...(selected.observed ?? [])],
+        updatedAt: new Date().toISOString(),
+      };
+      saveSession(next);
+      setSessions(loadSessions());
+      setConfirmState('saved');
+    } catch (err) {
+      setError(String(err));
+      setConfirmState('idle');
+    }
+  }
 
   async function decodeRecorded() {
     const blob = await recorder.stop();
@@ -205,6 +254,15 @@ export default function DecodePage() {
                   </option>
                 ))}
               </Select>
+
+              {selected && (
+                <Link
+                  href={`/profile/${selected.patientId ?? selected.id}`}
+                  className="mt-2 inline-block font-mono text-[11px] uppercase tracking-widest text-teal-700 hover:underline"
+                >
+                  Read their communication profile →
+                </Link>
+              )}
 
               <div className="mt-5 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
                 <Waveform level={recorder.level} active={recorder.recording} />
@@ -307,6 +365,63 @@ export default function DecodePage() {
                             </ul>
                           </div>
                         )}
+
+                        {/* ------------------------------- the learning loop */}
+                        <div className="mt-6 border-t border-neutral-200 pt-5">
+                          {confirmState === 'saved' ? (
+                            <p className="text-sm text-emerald-700">
+                              Saved to their profile. The next person who hears this gets your
+                              answer instead of a guess.{' '}
+                              <Link
+                                href={`/profile/${selected?.patientId ?? sessionId}`}
+                                className="underline"
+                              >
+                                See the profile
+                              </Link>
+                            </p>
+                          ) : (
+                            <>
+                              <Label>Did you work out what they meant?</Label>
+                              <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">
+                                Only confirm once you actually know — this becomes what the next
+                                caregiver is told.
+                              </p>
+
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button
+                                  variant="secondary"
+                                  disabled={confirmState === 'saving'}
+                                  onClick={() =>
+                                    confirmMeaning(result.decoding!.interpretation)
+                                  }
+                                >
+                                  {confirmState === 'saving'
+                                    ? 'Saving…'
+                                    : 'That reading was right'}
+                                </Button>
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap items-end gap-2">
+                                <label className="min-w-[200px] flex-1">
+                                  <Label>No — they actually meant</Label>
+                                  <input
+                                    value={correction}
+                                    onChange={(e) => setCorrection(e.target.value)}
+                                    placeholder="She wanted the window closed"
+                                    className="mt-2 w-full rounded-md border border-neutral-200 bg-white px-3.5 py-2.5 text-sm placeholder:text-neutral-400 focus:border-teal-500 focus:outline-none"
+                                  />
+                                </label>
+                                <Button
+                                  variant="secondary"
+                                  disabled={confirmState === 'saving' || !correction.trim()}
+                                  onClick={() => confirmMeaning(correction)}
+                                >
+                                  Correct it
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-4">

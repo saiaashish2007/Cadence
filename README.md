@@ -97,11 +97,17 @@ Get keys: [Medplum ClientApplication](https://app.medplum.com/ClientApplication)
 5. **The turn:** open **`/decode`** in a second tab. Type a slurred approximation of that message
    — `tuh mai dordr wehdin`. Moss finds it in single-digit milliseconds, the interpretation
    appears with a calibrated confidence, and **her actual recorded voice plays back**.
-6. **The system win:** back on `/bank`, hit **Check device coverage**. Stedi returns the plan's DME
+6. **The loop:** decode something new — `wah-er coh`. The reading comes back at medium confidence.
+   Confirm what it actually meant. Decode the same thing again: high confidence now, grounded in
+   the confirmation, which is charted and indexed. *"It learns her, and it does it in the chart."*
+7. **`/profile/[id]`** — the briefing a night nurse reads. Written from her own banked words, with
+   the confirmed meanings as a glossary and the phrase book searchable underneath.
+8. **The system win:** back on `/bank`, hit **Check device coverage**. Stedi returns the plan's DME
    benefit and the five-step SGD approval path. *"Her speech device is covered — here's the path."*
-7. **`/chart/[id]`** — the whole thing as FHIR resources.
+9. **`/chart/[id]`** — the whole thing as FHIR resources.
 
-The arc is heart → system. Step 5 is the moment; step 6 is the reason it's a product.
+The arc is heart → system. Step 5 is the moment; step 6 is the one judges haven't seen before;
+step 8 is the reason it's a product.
 
 ---
 
@@ -109,9 +115,10 @@ The arc is heart → system. Step 5 is the moment; step 6 is the reason it's a p
 
 ```
 app/
-  page.tsx              landing — two doors, before and after
+  page.tsx              landing
   bank/                 guided capture session
-  decode/               caregiver decoder (the VOCA half)
+  decode/               caregiver decoder — lookup, then confirm what it meant
+  profile/[id]/         the living communication profile
   chart/[id]/           FHIR resource view
   api/
     session/            provision Patient + CarePlan
@@ -121,17 +128,40 @@ app/
     audio/[id]/         serve a banked recording back
     decode/retrieve/    Moss only — ~10ms, paints immediately
     decode/             the reading, grounded in those matches
+    confirm/            ★ the learning loop: chart it, index it
+    profile/            build the caregiver briefing from the library
     coverage/           Stedi 270/271 for the SGD
     chart/[id]/         read back from Medplum
 lib/
   deepgram.ts  medplum.ts  moss.ts  stedi.ts
   claude.ts             the clinical reasoning layer
   phonetics.ts          grapheme→phoneme coverage, computed locally
+  profile-sources.ts    rebuilds a profile out of FHIR
   client-session.ts     the browser's copy of a session — the durable one
   session-context.ts    resolves the session a request carries with it
   fhir-projection.ts    the resources as they'd be written, without Medplum
   store.ts              per-process cache for audio and local dev
 ```
+
+### The three surfaces
+
+**Bank** preserves the voice while there still is one. **Decode** is the live lookup: a listener
+hears something they can't parse, Moss finds the nearest banked phrases, and the reading is
+grounded in those. **Profile** is the part a stranger reads — a briefing written from this
+person's own words for the night nurse who has two minutes before they have to try talking to
+them.
+
+The profile is *living*, which is the part that matters. When a caregiver decodes an utterance and
+confirms what it actually meant, that pair is written to FHIR as a `Communication` and indexed in
+Moss on the **heard** form. The next person who hears the same sound retrieves the confirmed
+reading directly instead of starting from a guess.
+
+Measured on one confirmation: `"wah-er coh"` decoded as *"a request for a cold drink of water"* at
+medium confidence beforehand, and *"she wants her water colder — more ice, not a refill"* at high
+confidence afterward, with the confirmed entry retrieved at score 1.000.
+
+That loop is also the honest answer to a real problem: speech at month eighteen is not speech at
+diagnosis, so a library frozen at diagnosis decays. This one keeps up.
 
 ### State, and why the API routes are stateless
 

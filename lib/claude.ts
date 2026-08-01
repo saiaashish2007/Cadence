@@ -192,6 +192,12 @@ likely to be reaching for that again than for a phrase they have never used. Wei
 their score, but do not force a match: if nothing in the library fits, say so and read the \
 transcription on its own terms.
 
+Some matches are marked CONFIRMED: a caregiver previously heard that utterance and confirmed what \
+it meant. Those are the strongest evidence you have — this person has been observed saying exactly \
+this, and someone who was there established the meaning. A close CONFIRMED match should usually \
+win over a higher-scoring banked phrase, and it justifies higher confidence than you would \
+otherwise give.
+
 Be calibrated and be honest. 'low' confidence is the correct answer more often than people like. \
 A confident wrong guess is worse than an admitted uncertainty — the listener will act on what you \
 say, and getting it wrong means this person is misunderstood again by someone who was trying.
@@ -234,7 +240,8 @@ export async function decodeUtterance(input: {
                 .map(
                   (m) =>
                     `- id=${m.id} score=${m.score.toFixed(3)} mediaId=${m.mediaId ?? ''} ` +
-                    `[${m.kind}${m.recipient ? ` / for ${m.recipient}` : ''}${m.occasion ? ` / ${m.occasion}` : ''}] "${m.text}"`
+                    `[${m.kind}${m.recipient ? ` / for ${m.recipient}` : ''}${m.occasion ? ` / ${m.occasion}` : ''}] "${m.text}"` +
+                    (m.meaning ? ` — CONFIRMED to mean: "${m.meaning}"` : '')
                 )
                 .join('\n')
             : '- (library is empty or returned no matches)',
@@ -246,6 +253,133 @@ export async function decodeUtterance(input: {
   });
 
   return parseJson<Decoding>(response) ?? fallbackDecoding(input.transcript, input.matches);
+}
+
+// ---------------------------------------------------------------------------
+// 3. The communication profile
+// ---------------------------------------------------------------------------
+
+export type CommunicationProfile = {
+  /** Who this person is as a communicator, for someone meeting them today. */
+  summary: string;
+  /** Practical, specific things to do when talking with them. */
+  howTo: string[];
+  /** What they actually talk about, with their own words as evidence. */
+  themes: { name: string; examples: string[] }[];
+  /** The people who recur in what they banked, and what to know about each. */
+  people: { name: string; note: string }[];
+  /** Honest statement of what this profile cannot tell you. */
+  limits: string;
+};
+
+const PROFILE_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    howTo: { type: 'array', items: { type: 'string' } },
+    themes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          examples: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['name', 'examples'],
+        additionalProperties: false,
+      },
+    },
+    people: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, note: { type: 'string' } },
+        required: ['name', 'note'],
+        additionalProperties: false,
+      },
+    },
+    limits: { type: 'string' },
+  },
+  required: ['summary', 'howTo', 'themes', 'people', 'limits'],
+  additionalProperties: false,
+} as const;
+
+const PROFILE_SYSTEM = `You write the communication profile for someone whose speech has become \
+hard to understand — late-stage ALS, post-laryngectomy, severe dysarthria or aphasia.
+
+Your reader is a person who does not know them: a night nurse on their first shift, a new aide, a \
+respite carer, an ER doctor at 3am. They have two minutes. What you write decides whether this \
+person gets understood today.
+
+Your evidence is two things: the phrases this person banked in their own voice back when they \
+could still speak clearly, and any utterances a caregiver has since heard and confirmed the \
+meaning of. That is all you know. Everything you write must be traceable to it.
+
+The point is not to replace how they communicate. It is to describe how they ALREADY communicate \
+so someone else can meet them there — their vocabulary, who they mention, what they return to, the \
+way they phrase things.
+
+Rules:
+- Be specific and concrete. "She calls her daughter Maya, never 'my daughter'" is useful. "She \
+values family" is worthless.
+- Quote their actual words as evidence. That is what makes this trustworthy rather than a summary.
+- howTo entries are practical instructions a stranger can act on in the next five minutes.
+- Never speculate about medical status, prognosis, or feelings they did not express.
+- Do not be sentimental. This is a working document, not a tribute.
+- 'limits' must plainly say what this profile can't tell the reader — a small library means a \
+partial picture, and a stranger acting on an overconfident profile is the failure mode here.
+- Always populate every field; use an empty array where nothing applies.`;
+
+export async function buildCommunicationProfile(input: {
+  patientName: string;
+  phrases: { text: string; kind: string; recipient?: string; occasion?: string }[];
+  observed: { heard: string; meaning: string; situation?: string }[];
+}): Promise<CommunicationProfile> {
+  const c = client();
+  if (!c) return fallbackProfile(input.patientName, input.phrases.length);
+
+  const response = await c.messages.create({
+    model: MODEL,
+    max_tokens: 4000,
+    system: PROFILE_SYSTEM,
+    thinking: { type: 'adaptive' },
+    output_config: {
+      effort: 'medium',
+      format: { type: 'json_schema', schema: PROFILE_SCHEMA },
+    },
+    messages: [
+      {
+        role: 'user',
+        content: [
+          `Person: ${input.patientName}`,
+          ``,
+          `Phrases they banked in their own voice (${input.phrases.length}):`,
+          input.phrases.length
+            ? input.phrases
+                .map(
+                  (p) =>
+                    `- [${p.kind}${p.recipient ? ` / for ${p.recipient}` : ''}${p.occasion ? ` / ${p.occasion}` : ''}] "${p.text}"`
+                )
+                .join('\n')
+            : '- none yet',
+          ``,
+          `Utterances a caregiver has heard since, with the meaning they confirmed (${input.observed.length}):`,
+          input.observed.length
+            ? input.observed
+                .map(
+                  (o) =>
+                    `- heard "${o.heard}" → meant "${o.meaning}"${o.situation ? ` (${o.situation})` : ''}`
+                )
+                .join('\n')
+            : '- none yet',
+          ``,
+          `Write the profile.`,
+        ].join('\n'),
+      },
+    ],
+  });
+
+  return parseJson<CommunicationProfile>(response) ?? fallbackProfile(input.patientName, input.phrases.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +425,20 @@ function fallbackPrompt(bankedCount: number, coverage: Coverage): BankingPrompt 
     occasion: '',
     rationale: `Stub prompt — coverage ${(coverage.ratio * 100).toFixed(0)}%. Set ANTHROPIC_API_KEY for adaptive selection.`,
     sessionComplete: coverage.ratio >= 0.92 && bankedCount >= 8,
+  };
+}
+
+function fallbackProfile(patientName: string, phraseCount: number): CommunicationProfile {
+  return {
+    summary: `${patientName} has ${phraseCount} phrases banked in their own voice. Set ANTHROPIC_API_KEY to generate the written profile from them.`,
+    howTo: [
+      'Read the phrase book below — those are their actual words.',
+      'When you cannot parse something, use the decoder rather than guessing.',
+      'Confirm what you understood before acting on it.',
+    ],
+    themes: [],
+    people: [],
+    limits: 'Stub profile — no reasoning layer configured.',
   };
 }
 

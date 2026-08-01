@@ -26,6 +26,15 @@ export type BankedRecording = {
   audioUrl: string;
 };
 
+/** An utterance a caregiver heard and confirmed the meaning of. */
+export type ObservedUtterance = {
+  id: string;
+  heard: string;
+  meaning: string;
+  situation?: string;
+  when?: string;
+};
+
 export type CadenceSession = {
   id: string;
   patientName: string;
@@ -36,6 +45,7 @@ export type CadenceSession = {
   createdAt: string;
   updatedAt: string;
   banked: BankedRecording[];
+  observed: ObservedUtterance[];
 };
 
 const KEY = 'cadence.sessions.v1';
@@ -49,6 +59,8 @@ export function loadSessions(): CadenceSession[] {
     if (!Array.isArray(parsed)) return [];
     return (parsed as CadenceSession[])
       .filter((s) => s && typeof s.id === 'string')
+      // Sessions stored before a field existed still have to load.
+      .map((s) => ({ ...s, banked: s.banked ?? [], observed: s.observed ?? [] }))
       .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
   } catch {
     return [];

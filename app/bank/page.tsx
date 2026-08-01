@@ -155,6 +155,7 @@ export default function BankPage() {
         createdAt: now,
         updatedAt: now,
         banked: [],
+        observed: [],
       };
       persist(next);
       setBusy(null);
@@ -503,12 +504,20 @@ export default function BankPage() {
                   {sgd ? `${sgd.source} eligibility returned` : 'pending — run at session end'}
                 </li>
               </ul>
-              <Link
-                href={`/chart/${chartId}`}
-                className="mt-4 inline-block font-mono text-[11px] uppercase tracking-widest text-teal-700 hover:underline"
-              >
-                View FHIR chart →
-              </Link>
+              <div className="mt-4 flex flex-col gap-1.5">
+                <Link
+                  href={`/profile/${chartId}`}
+                  className="font-mono text-[11px] uppercase tracking-widest text-teal-700 hover:underline"
+                >
+                  Communication profile →
+                </Link>
+                <Link
+                  href={`/chart/${chartId}`}
+                  className="font-mono text-[11px] uppercase tracking-widest text-teal-700 hover:underline"
+                >
+                  View FHIR chart →
+                </Link>
+              </div>
             </Panel>
 
             {/* ------------------------------------------- Stedi */}
