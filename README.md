@@ -2,7 +2,9 @@
 
 ## 1. What Is This?
 
-About [5,000 Americans are told they have ALS every year](https://www.cdc.gov/als/abouttheregistrymain/index.html), and most will eventually lose the ability to speak as the disease reaches the muscles that produce speech. Another [12,290 people are diagnosed with laryngeal cancer annually](https://seer.cancer.gov/statfacts/html/laryn.html), where treatment can mean removing the voice box outright. In both cases there is a window — they still have their voice today, and they know they will lose it.
+**Cadence is for anyone whose speech is at risk, whatever the cause.** ALS and laryngectomy are the sharpest versions of the problem and the two we designed against first, but they are not the boundary. The intake covers head and neck cancer, Parkinson's, multiple sclerosis, stroke and aphasia, cerebral palsy, traumatic brain injury, and a free-text field for anything else — because the thing that matters isn't the diagnosis, it's whether someone has any warning before their voice changes.
+
+About [5,000 Americans are told they have ALS every year](https://www.cdc.gov/als/abouttheregistrymain/index.html), and most will eventually lose the ability to speak as the disease reaches the muscles that produce speech. Another [12,290 people are diagnosed with laryngeal cancer annually](https://seer.cancer.gov/statfacts/html/laryn.html), where treatment can mean removing the voice box outright. Those are two entry points into a much larger population — degenerative disease, surgery, stroke, injury — and in every case the same window exists: the voice is still here today, and it may not be later.
 
 The two established preparations, **voice banking** and **message banking**, are drastically under-used, because patients are told too late and the process asks them to read hundreds of phonetically-chosen sentences alone at a computer, often *after* speech has already started to slur. Cadence compresses that into one twenty-minute session and makes the recordings useful the same day:
 
@@ -117,6 +119,10 @@ The two-minute path: bank three or four phrases on **Bank a voice**, open **Spea
 For local setup and the full environment matrix, see [SETUP.md](./SETUP.md).
 
 ## Future Considerations
+
+### Decks Tuned Per Condition
+
+The intake already accepts nine condition categories plus free text, but every patient currently gets the same deck. They shouldn't. Someone facing a planned laryngectomy has a known date and can bank in a calm, unhurried voice; someone with advancing ALS may be recording against bulbar decline that is already underway; someone recovering from a stroke has a very different trajectory again, where the goal may be bridging a temporary gap rather than preserving against permanent loss. The phrases worth banking first, the order to ask for them in, and when to tell someone they've done enough all differ by condition, and getting that right is a clinical question rather than a code one.
 
 ### A Deck That Grows Past Thirty
 

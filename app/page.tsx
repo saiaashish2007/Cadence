@@ -21,6 +21,11 @@ const SPONSORS = [
 const MARQUEE = [
   'ALS clinics',
   'Head & neck oncology',
+  'Stroke & aphasia rehab',
+  'Parkinson’s care',
+  'Multiple sclerosis',
+  'Cerebral palsy',
+  'Traumatic brain injury',
   'Speech-language pathology',
   'AAC vendors',
   'Palliative care',
@@ -33,7 +38,7 @@ const FEATURES = [
   {
     label: 'Guided capture',
     title: 'Twenty minutes, not 1,600 sentences.',
-    body: 'Thirty everyday phrases — asking for water, saying where it hurts, saying goodnight — interleaved with the personal messages that are actually the point. Standard voice banking has people read sentences nobody ever needs to say. These ones get used.',
+    body: 'A deck of everyday phrases — asking for water, saying where it hurts, saying goodnight — interleaved with the personal messages that are actually the point. Standard voice banking has people read sentences nobody ever needs to say. These ones get used. Thirty is what fits a first sitting; the bank keeps growing after that.',
     panel: (
       <div className="space-y-3">
         <Label>Prompt · everyday phrase</Label>
@@ -180,7 +185,9 @@ export default async function Home() {
               <div>
                 <span className="inline-flex items-center gap-2 rounded-full border border-teal-100 bg-teal-50/50 px-3 py-1">
                   <StatusDot live />
-                  <Label className="text-teal-700">Voice preservation at diagnosis</Label>
+                  <Label className="text-teal-700">
+                    For anyone whose speech is at risk
+                  </Label>
                 </span>
 
                 <h1 className="mt-6 text-4xl leading-[1.08] tracking-tight md:text-6xl">
@@ -189,10 +196,17 @@ export default async function Home() {
                 </h1>
 
                 <p className="mt-6 max-w-xl text-base leading-relaxed text-neutral-600 md:text-lg">
-                  When someone is diagnosed with ALS, or scheduled for a laryngectomy, there is a
-                  window: they still have their voice today, and they will lose it. Cadence spends
-                  twenty minutes banking the thirty things they&rsquo;ll need to say — then speaks
-                  them out loud, in their own recorded voice, for as long as they need it to.
+                  Speech can be taken by a diagnosis, a surgery, a stroke, or an injury. Whenever
+                  there is warning — even a little — there is a window: the voice is still here
+                  today, and it may not be later. Cadence spends twenty minutes banking the things
+                  someone will need to say, then speaks them out loud, in their own recorded voice,
+                  for as long as they need it to.
+                </p>
+
+                <p className="mt-4 max-w-xl text-sm leading-relaxed text-neutral-500">
+                  Built with ALS and laryngectomy in mind, and open to the rest: head and neck
+                  cancer, Parkinson&rsquo;s, MS, stroke and aphasia, cerebral palsy, traumatic
+                  brain injury — or any condition that puts speech at risk.
                 </p>
 
                 {authed ? (
