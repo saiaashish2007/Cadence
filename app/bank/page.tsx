@@ -45,14 +45,6 @@ type Prompt = {
 
 type Deck = { total: number; banked: number };
 
-type RemoteSession = {
-  patientId: string;
-  carePlanId: string;
-  patientName: string;
-  diagnosis: string;
-  createdAt?: string;
-};
-
 const DIAGNOSES = [
   'Amyotrophic lateral sclerosis (ALS)',
   'Laryngectomy or planned laryngectomy',
@@ -83,7 +75,7 @@ type CoverageResult = {
 export default function BankPage() {
   const [session, setSession] = useState<CadenceSession | null>(null);
   const [savedSessions, setSavedSessions] = useState<CadenceSession[]>([]);
-  const [remoteSessions, setRemoteSessions] = useState<RemoteSession[]>([]);
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [patientName, setPatientName] = useState('');
   const [diagnosis, setDiagnosis] = useState<(typeof DIAGNOSES)[number]>('Amyotrophic lateral sclerosis (ALS)');
@@ -204,42 +196,37 @@ export default function BankPage() {
     return () => window.removeEventListener('storage', refreshSavedSessions);
   }, []);
 
-  useEffect(() => {
-    // This is deliberately a lightweight index query. The recordings themselves
-    // are only fetched if the person chooses a record to recover.
-    fetch('/api/session?source=medplum')
-      .then((res) => res.json())
-      .then((json) => setRemoteSessions(Array.isArray(json.sessions) ? json.sessions : []))
-      .catch(() => {});
-  }, []);
-
   async function resumeSession(saved: CadenceSession) {
     persist(saved);
     setSaveNotice(`Resumed ${saved.patientName}'s saved session.`);
     await loadPrompt(saved, false);
   }
 
-  async function recoverFromMedplum(remote: RemoteSession) {
+  async function recoverFromMedplum() {
+    const patientId = recoveryCode.trim();
+    if (!patientId) {
+      setError('Enter the recovery code from the device that started this session.');
+      return;
+    }
     setBusy('Restoring saved recordings from Medplum…');
     setError(null);
     try {
       const res = await fetch('/api/library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patientId: remote.patientId, patientName: remote.patientName }),
+        body: JSON.stringify({ patientId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'could not restore this record');
 
       const now = new Date().toISOString();
       const restored: CadenceSession = {
-        id: remote.patientId,
-        patientId: remote.patientId,
-        carePlanId: remote.carePlanId,
-        patientName: json.patientName || remote.patientName,
-        diagnosis: remote.diagnosis,
+        id: patientId,
+        patientId,
+        patientName: json.patientName || 'Recovered patient',
+        diagnosis: 'Communication preservation',
         fhirLinked: true,
-        createdAt: remote.createdAt ?? now,
+        createdAt: now,
         updatedAt: now,
         observed: [],
         banked: (json.phrases ?? []).map((phrase: {
@@ -281,6 +268,17 @@ export default function BankPage() {
     persist({ ...session, updatedAt: new Date().toISOString() });
     setSavedSessions(loadSessions());
     setSaveNotice('Progress saved. You can safely leave and resume this session later.');
+  }
+
+  async function copyRecoveryCode() {
+    if (!session) return;
+    const code = session.patientId ?? session.id;
+    try {
+      await navigator.clipboard.writeText(code);
+      setSaveNotice('Recovery code copied. Use it on another device to restore this record.');
+    } catch {
+      setSaveNotice(`Recovery code: ${code}`);
+    }
   }
 
   async function beginSession(e: React.FormEvent) {
@@ -483,48 +481,29 @@ export default function BankPage() {
             </Card>
           )}
 
-          {remoteSessions.some(
-            (remote) => !savedSessions.some((saved) => saved.patientId === remote.patientId)
-          ) && (
-            <Card className="mt-5 border-teal-200 bg-teal-50/40">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <Label className="text-teal-700">Records saved in Medplum</Label>
-                  <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                    Continue a voice bank started on another device. The audio and record stay in
-                    Medplum; this restores a working copy in this browser.
-                  </p>
-                </div>
-                <span className="font-mono text-[11px] uppercase tracking-widest text-teal-700">
-                  secure record
-                </span>
-              </div>
-              <div className="mt-4 space-y-2">
-                {remoteSessions
-                  .filter((remote) => !savedSessions.some((saved) => saved.patientId === remote.patientId))
-                  .slice(0, 5)
-                  .map((remote) => (
-                    <button
-                      key={remote.patientId}
-                      type="button"
-                      onClick={() => void recoverFromMedplum(remote)}
-                      disabled={Boolean(busy)}
-                      className="flex w-full items-center justify-between gap-4 rounded-lg border border-teal-100 bg-white px-4 py-3 text-left transition-colors hover:bg-teal-50 disabled:opacity-60"
-                    >
-                      <span>
-                        <span className="block text-sm font-medium">{remote.patientName}</span>
-                        <span className="mt-1 block text-xs text-neutral-500">
-                          {remote.diagnosis}
-                        </span>
-                      </span>
-                      <span className="font-mono text-[11px] uppercase tracking-widest text-teal-700">
-                        Restore →
-                      </span>
-                    </button>
-                  ))}
-              </div>
-            </Card>
-          )}
+          <Card className="mt-5 border-teal-200 bg-teal-50/40">
+            <Label className="text-teal-700">Restore from another device</Label>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+              On the device that started the session, copy its recovery code. Enter it here to
+              restore that one Medplum record and its banked recordings.
+            </p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <input
+                value={recoveryCode}
+                onChange={(e) => setRecoveryCode(e.target.value)}
+                placeholder="Paste recovery code"
+                className="min-w-0 flex-1 rounded-md border border-teal-100 bg-white px-3.5 py-2.5 text-sm placeholder:text-neutral-400 focus:border-teal-500 focus:outline-none"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void recoverFromMedplum()}
+                disabled={Boolean(busy) || !recoveryCode.trim()}
+              >
+                Restore record
+              </Button>
+            </div>
+          </Card>
 
           <form onSubmit={beginSession} className="mt-10 space-y-5">
             <Card className="bg-neutral-50">
@@ -671,6 +650,13 @@ export default function BankPage() {
             </span>
             <Button variant="secondary" onClick={saveProgress} disabled={Boolean(busy)}>
               Save progress
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void copyRecoveryCode()}
+              disabled={Boolean(busy) || !session.fhirLinked}
+            >
+              Copy recovery code
             </Button>
           </div>
         </div>

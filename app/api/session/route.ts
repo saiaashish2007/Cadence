@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createBankSession, listBankSessions, medplumConfigured } from '@/lib/medplum';
+import { createBankSession, medplumConfigured } from '@/lib/medplum';
 import { createSession, listSessions, serializeSession } from '@/lib/store';
 
 export const runtime = 'nodejs';
 
-export async function GET(req: NextRequest) {
-  if (req.nextUrl.searchParams.get('source') === 'medplum') {
-    if (!medplumConfigured) return NextResponse.json({ sessions: [] });
-
-    try {
-      return NextResponse.json({ sessions: await listBankSessions(), source: 'medplum' });
-    } catch (err) {
-      console.error('[medplum] listBankSessions failed:', err);
-      return NextResponse.json({ sessions: [], source: 'unavailable' });
-    }
-  }
-
+export async function GET() {
   return NextResponse.json({ sessions: listSessions().map(serializeSession) });
 }
 
