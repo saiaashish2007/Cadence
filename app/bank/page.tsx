@@ -77,6 +77,7 @@ export default function BankPage() {
   const [savedSessions, setSavedSessions] = useState<CadenceSession[]>([]);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [autoSavedAt, setAutoSavedAt] = useState<string | null>(null);
   const [patientName, setPatientName] = useState('');
   const [diagnosis, setDiagnosis] = useState<(typeof DIAGNOSES)[number]>('Amyotrophic lateral sclerosis (ALS)');
   const [otherDiagnosis, setOtherDiagnosis] = useState('');
@@ -111,6 +112,33 @@ export default function BankPage() {
     setSession(next);
     saveSession(next);
   }, []);
+
+  // Autosave. `persist` already writes on every known mutation, so this is the
+  // safety net: any change to the session reaches storage whether or not the
+  // code path that made it remembered to save, and the timestamp gives the
+  // person recording a reason to trust that leaving the page is safe.
+  useEffect(() => {
+    if (!session) return;
+    const timer = window.setTimeout(() => {
+      saveSession(session);
+      setSavedSessions(loadSessions());
+      setAutoSavedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [session]);
+
+  // A phone backgrounding the tab can kill it without ever firing `unload`, so
+  // the last write happens the moment the page is hidden rather than closed.
+  useEffect(() => {
+    if (!session) return;
+    const flush = () => saveSession(session);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+    };
+  }, [session]);
 
   /** Speak the agent's prompt aloud. Silently no-ops without a Deepgram key. */
   const speakPrompt = useCallback(async (text: string) => {
@@ -647,6 +675,10 @@ export default function BankPage() {
               <Label>
                 {session.fhirLinked ? 'charting to Medplum' : 'FHIR projected (no Medplum key)'}
               </Label>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-neutral-200 px-3 py-1.5">
+              <StatusDot live={Boolean(autoSavedAt)} />
+              <Label>{autoSavedAt ? `autosaved ${autoSavedAt}` : 'autosave on'}</Label>
             </span>
             <Button variant="secondary" onClick={saveProgress} disabled={Boolean(busy)}>
               Save progress

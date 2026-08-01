@@ -214,7 +214,35 @@ const NAV = [
   { href: '/decode', label: 'Decoder' },
 ];
 
-export function SiteHeader({ cta }: { cta?: { href: string; label: string } }) {
+function LogOutButton() {
+  const [leaving, setLeaving] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        setLeaving(true);
+        await fetch('/api/auth/logout', { method: 'POST' });
+        // Hard navigation so no gated page stays rendered from the client cache.
+        window.location.href = '/';
+      }}
+      disabled={leaving}
+      className="text-sm text-neutral-500 transition-colors hover:text-neutral-900 disabled:text-neutral-300"
+    >
+      {leaving ? 'Signing out…' : 'Sign out'}
+    </button>
+  );
+}
+
+/**
+ * `authed` drives what the header is even willing to point at. Signed out, the
+ * app routes aren't listed at all — the only way in is the sign-in button.
+ */
+export function SiteHeader({
+  cta,
+  authed = true,
+}: {
+  cta?: { href: string; label: string };
+  authed?: boolean;
+}) {
   return (
     <header className="sticky top-0 z-50 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
@@ -223,24 +251,29 @@ export function SiteHeader({ cta }: { cta?: { href: string; label: string } }) {
           <span className="text-[15px] font-semibold tracking-tight">Cadence</span>
         </Link>
 
-        <nav className="hidden items-center gap-8 md:flex">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        {authed && (
+          <nav className="hidden items-center gap-8 md:flex">
+            {NAV.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="text-sm text-neutral-600 transition-colors hover:text-neutral-900"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        )}
 
-        <Link
-          href={cta?.href ?? '/bank'}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
-        >
-          {cta?.label ?? 'Start a session'}
-        </Link>
+        <div className="flex items-center gap-5">
+          {authed && <LogOutButton />}
+          <Link
+            href={authed ? (cta?.href ?? '/bank') : '/login'}
+            className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+          >
+            {authed ? (cta?.label ?? 'Start a session') : 'Log in'}
+          </Link>
+        </div>
       </div>
     </header>
   );

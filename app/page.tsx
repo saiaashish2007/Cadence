@@ -1,5 +1,7 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { Label, SiteFooter, SiteHeader, StatusDot } from '@/components/ui';
+import { SESSION_COOKIE, verifySessionToken } from '@/lib/auth';
 
 const STATS = [
   { value: '4ms', label: 'Retrieval' },
@@ -155,10 +157,24 @@ const FEATURES = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // The pitch stays public; the links into the app only appear once signed in.
+  const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const authed = session !== null;
+
+  const primary = authed
+    ? { href: '/bank', label: 'Bank a voice' }
+    : { href: '/login', label: 'Log in to start' };
+  const secondary = authed
+    ? { href: '/talk', label: 'Speak for me' }
+    : { href: '/login', label: 'Log in' };
+  const closing = authed
+    ? { href: '/decode', label: 'Open the decoder' }
+    : { href: '/login', label: 'Log in' };
+
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader />
+      <SiteHeader authed={authed} />
 
       <main className="flex-1">
         {/* ------------------------------------------------------- hero */}
@@ -185,18 +201,24 @@ export default function Home() {
 
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link
-                    href="/bank"
+                    href={primary.href}
                     className="rounded-md bg-neutral-900 px-7 py-3.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
                   >
-                    Bank a voice
+                    {primary.label}
                   </Link>
                   <Link
-                    href="/talk"
+                    href={secondary.href}
                     className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
                   >
-                    Speak for me
+                    {secondary.label}
                   </Link>
                 </div>
+
+                {!authed && (
+                  <p className="mt-4 font-mono text-[11px] text-neutral-500">
+                    Judges — user123 / medplum
+                  </p>
+                )}
               </div>
 
               {/* console mock */}
@@ -340,16 +362,16 @@ export default function Home() {
           </h2>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link
-              href="/bank"
+              href={primary.href}
               className="rounded-md bg-neutral-900 px-7 py-3.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
             >
-              Bank a voice
+              {primary.label}
             </Link>
             <Link
-              href="/decode"
+              href={closing.href}
               className="rounded-md border border-neutral-200 bg-white px-7 py-3.5 text-sm font-medium transition-colors hover:bg-neutral-100"
             >
-              Open the decoder
+              {closing.label}
             </Link>
           </div>
         </section>
