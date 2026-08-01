@@ -26,6 +26,13 @@ export const claudeConfigured = Boolean(API_KEY);
 
 const MODEL = 'claude-opus-5';
 
+/**
+ * The profile is summarisation of text that's already in the prompt — no
+ * judgement call about what is safe to say on someone's behalf, which is what
+ * Opus is here for. A caregiver is waiting on this one, so it runs on Sonnet.
+ */
+const PROFILE_MODEL = 'claude-sonnet-5';
+
 const globalCache = globalThis as typeof globalThis & {
   __cadenceAnthropic?: Anthropic;
 };
@@ -447,12 +454,14 @@ export async function buildCommunicationProfile(input: {
   if (!c) return fallbackProfile(input.patientName, input.phrases.length);
 
   const response = await c.messages.create({
-    model: MODEL,
-    max_tokens: 4000,
+    model: PROFILE_MODEL,
+    max_tokens: 1600,
     system: PROFILE_SYSTEM,
-    thinking: { type: 'adaptive' },
+    // No extended thinking here, unlike decoding. This is summarisation of text
+    // that's entirely in the prompt — there's nothing to reason toward, and the
+    // thinking budget was most of the wait a caregiver sat through.
     output_config: {
-      effort: 'medium',
+      effort: 'low',
       format: { type: 'json_schema', schema: PROFILE_SCHEMA },
     },
     messages: [

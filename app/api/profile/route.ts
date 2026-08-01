@@ -4,83 +4,68 @@
  * Reads the person's banked library and every meaning a caregiver has since
  * confirmed, and writes the two-minute briefing a stranger needs before they
  * try to talk to them.
+ *
+ * This is the slow half by design. The evidence it's built from is served
+ * separately by /api/profile/sources so the page can paint while this runs.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { buildCommunicationProfile, claudeConfigured } from '@/lib/claude';
-import { medplumConfigured } from '@/lib/medplum';
-import { readProfileSources, type ObservedUtterance, type ProfilePhrase } from '@/lib/profile-sources';
-import { isSpoken, parseLibrary } from '@/lib/retrieval';
+import { buildCommunicationProfile, claudeConfigured, type CommunicationProfile } from '@/lib/claude';
+import { resolveProfileSources } from '@/lib/profile-sources';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
+/**
+ * A profile is a pure function of the phrases and confirmations behind it, so
+ * revisiting the page shouldn't pay for it twice. Keyed on a fingerprint of
+ * that evidence, which means a new recording or confirmation invalidates it on
+ * its own. Hangs off globalThis to survive both hot-reload and a warm instance.
+ */
+const cache = ((globalThis as typeof globalThis & {
+  __cadenceProfileCache?: Map<string, CommunicationProfile>;
+}).__cadenceProfileCache ??= new Map());
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const patientId: string = body.patientId ?? '';
-  let patientName: string = body.patientName ?? '';
+  const sources = await resolveProfileSources(body);
 
-  let phrases: ProfilePhrase[] = [];
-  let observed: ObservedUtterance[] = [];
-  let source: 'medplum' | 'client' = 'client';
-
-  if (medplumConfigured && patientId) {
-    try {
-      const fromFhir = await readProfileSources(patientId);
-      if (fromFhir && fromFhir.phrases.length) {
-        phrases = fromFhir.phrases;
-        observed = fromFhir.observed;
-        patientName = fromFhir.patientName || patientName;
-        source = 'medplum';
-      }
-    } catch (err) {
-      console.error('[medplum] readProfileSources failed:', err);
-    }
-  }
-
-  // Falls back to the library the caller is holding, so the profile still works
-  // before FHIR is wired up or for a session that never reached it.
-  if (!phrases.length) {
-    phrases = parseLibrary(body.library)
-      .filter(isSpoken)
-      .map((p) => ({
-        id: p.id,
-        text: p.text,
-        kind: p.kind,
-        recipient: p.recipient,
-        occasion: p.occasion,
-        mediaId: p.mediaId,
-        audioUrl: p.mediaId ? `/api/audio/${p.mediaId}` : undefined,
-        essentialId: p.essentialId,
-      }));
-    observed = Array.isArray(body.observed) ? (body.observed as ObservedUtterance[]) : [];
-  }
-
-  if (!phrases.length) {
+  if (!sources.phrases.length) {
     return NextResponse.json({ error: 'nothing banked for this person yet' }, { status: 404 });
   }
 
-  const profile = await buildCommunicationProfile({
-    patientName: patientName || 'This person',
-    phrases: phrases.map((p) => ({
-      text: p.text,
-      kind: p.kind,
-      recipient: p.recipient,
-      occasion: p.occasion,
-    })),
-    observed: observed.map((o) => ({
-      heard: o.heard,
-      meaning: o.meaning,
-      situation: o.situation,
-    })),
-  });
+  const phrases = sources.phrases.map((p) => ({
+    text: p.text,
+    kind: p.kind,
+    recipient: p.recipient,
+    occasion: p.occasion,
+  }));
+  const observed = sources.observed.map((o) => ({
+    heard: o.heard,
+    meaning: o.meaning,
+    situation: o.situation,
+  }));
+
+  const key = JSON.stringify([sources.patientName, phrases, observed]);
+  let profile = cache.get(key);
+
+  if (!profile) {
+    profile = await buildCommunicationProfile({
+      patientName: sources.patientName || 'This person',
+      phrases,
+      observed,
+    });
+    // Bounded so a long-lived instance can't grow one entry per session forever.
+    if (cache.size > 32) cache.clear();
+    cache.set(key, profile);
+  }
 
   return NextResponse.json({
-    patientName,
+    patientName: sources.patientName,
     profile,
-    phrases,
-    observed,
-    source,
+    phrases: sources.phrases,
+    observed: sources.observed,
+    source: sources.source,
     reasoningLive: claudeConfigured,
   });
 }

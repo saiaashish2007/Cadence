@@ -19,7 +19,7 @@ By the end of the session the patient has a phrase bank that plays in their real
 
 ## 2. Demo
 
-**Live app:** [cadence-delta-wheat.vercel.app](https://cadence-delta-wheat.vercel.app)
+[Video](#)
 
 ## 3. How We Used Deepgram, Moss, Medplum, Anthropic, and Stedi
 

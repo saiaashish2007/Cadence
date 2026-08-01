@@ -8,10 +8,12 @@
 
 import {
   readVoiceBank,
+  medplumConfigured,
   ESSENTIAL_SYSTEM,
   OBSERVED_UTTERANCE_CODE,
   VOICE_BANK_SYSTEM,
 } from './medplum';
+import { isSpoken, parseLibrary } from './retrieval';
 
 /**
  * Only the fields this module reads, declared locally rather than pulling in
@@ -134,5 +136,64 @@ export async function readProfileSources(patientId: string): Promise<{
     patientName,
     phrases: phrases.filter((p) => p.text.trim()),
     observed: observed.sort((a, b) => (b.when ?? '').localeCompare(a.when ?? '')),
+  };
+}
+
+export type ProfileSources = {
+  patientName: string;
+  phrases: ProfilePhrase[];
+  observed: ObservedUtterance[];
+  source: 'medplum' | 'client';
+};
+
+/**
+ * Everything the profile is built from, with no model in the path.
+ *
+ * Shared by the two routes that need it: the one that returns these directly so
+ * the page can paint, and the one that spends several seconds turning them into
+ * a written briefing.
+ */
+export async function resolveProfileSources(body: {
+  patientId?: string;
+  patientName?: string;
+  library?: unknown;
+  observed?: unknown;
+}): Promise<ProfileSources> {
+  const patientId = body.patientId ?? '';
+
+  if (medplumConfigured && patientId) {
+    try {
+      const fromFhir = await readProfileSources(patientId);
+      if (fromFhir && fromFhir.phrases.length) {
+        return {
+          patientName: fromFhir.patientName || (body.patientName ?? ''),
+          phrases: fromFhir.phrases,
+          observed: fromFhir.observed,
+          source: 'medplum',
+        };
+      }
+    } catch (err) {
+      console.error('[medplum] readProfileSources failed:', err);
+    }
+  }
+
+  // Falls back to the library the caller is holding, so the profile still works
+  // before FHIR is wired up or for a session that never reached it.
+  return {
+    patientName: body.patientName ?? '',
+    phrases: parseLibrary(body.library)
+      .filter(isSpoken)
+      .map((p) => ({
+        id: p.id,
+        text: p.text,
+        kind: p.kind,
+        recipient: p.recipient,
+        occasion: p.occasion,
+        mediaId: p.mediaId,
+        audioUrl: p.mediaId ? `/api/audio/${p.mediaId}` : undefined,
+        essentialId: p.essentialId,
+      })),
+    observed: Array.isArray(body.observed) ? (body.observed as ObservedUtterance[]) : [],
+    source: 'client',
   };
 }

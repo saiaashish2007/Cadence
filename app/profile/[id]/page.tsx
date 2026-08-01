@@ -38,9 +38,8 @@ type Observed = {
   when?: string;
 };
 
-type Loaded = {
+type Sources = {
   patientName: string;
-  profile: Profile;
   phrases: Phrase[];
   observed: Observed[];
   source: 'medplum' | 'client';
@@ -48,29 +47,48 @@ type Loaded = {
 
 export default function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const [data, setData] = useState<Loaded | null>(null);
+  const [data, setData] = useState<Sources | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
+  // Two requests rather than one. The phrase book and the confirmed meanings
+  // are reads and come back immediately; the written briefing takes seconds, so
+  // it fills in underneath instead of holding the whole page behind it.
   useEffect(() => {
     const session = findSession(id) ?? loadSessions().find((s) => s.patientId === id);
+    const payload = {
+      patientId: session?.patientId ?? id,
+      patientName: session?.patientName ?? '',
+      library: toLibrary(session?.banked ?? []),
+      observed: session?.observed ?? [],
+    };
 
-    fetch('/api/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        patientId: session?.patientId ?? id,
-        patientName: session?.patientName ?? '',
-        library: toLibrary(session?.banked ?? []),
-        observed: session?.observed ?? [],
-      }),
-    })
-      .then(async (r) => {
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error ?? 'could not build the profile');
-        setData(json);
-      })
-      .catch((err) => setError(String(err)));
+    const post = async (path: string) => {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'could not build the profile');
+      return json;
+    };
+
+    let live = true;
+
+    post('/api/profile/sources')
+      .then((json: Sources) => live && setData(json))
+      .catch((err) => live && setError(String(err)));
+
+    post('/api/profile')
+      .then((json: { profile: Profile }) => live && setProfile(json.profile))
+      // The evidence below is still worth showing if only the briefing failed.
+      .catch(() => {});
+
+    return () => {
+      live = false;
+    };
   }, [id]);
 
   // The phrase book is a lookup tool, not a list to scroll — a caregiver
@@ -128,53 +146,61 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
 
         {!data && !error && (
           <div className="mt-10">
-            <ThinkingDots label="Reading their library and writing the profile…" />
+            <ThinkingDots label="Reading their library…" />
           </div>
         )}
 
         {data && (
           <div className="mt-10 space-y-6">
-            <Panel title="In short" accent>
-              <p className="text-lg leading-relaxed">{data.profile.summary}</p>
-            </Panel>
-
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Panel title="What to do" subtitle="Practical, in the next five minutes.">
-                <ol className="space-y-3">
-                  {data.profile.howTo.map((step, i) => (
-                    <li key={i} className="flex gap-3 text-[15px] leading-relaxed">
-                      <span className="font-mono text-xs text-teal-600">{i + 1}</span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ol>
+            {profile ? (
+              <Panel title="In short" accent>
+                <p className="text-lg leading-relaxed">{profile.summary}</p>
               </Panel>
+            ) : (
+              <Panel title="In short" accent>
+                <ThinkingDots label="Writing the briefing from their own words…" />
+              </Panel>
+            )}
 
-              <Panel title="Who matters to them" subtitle="Names that recur in what they banked.">
-                {data.profile.people.length === 0 ? (
-                  <p className="text-sm text-neutral-500">
-                    Not enough banked yet to say. Treat any name they use as important.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-neutral-100">
-                    {data.profile.people.map((p) => (
-                      <li key={p.name} className="py-3 first:pt-0 last:pb-0">
-                        <p className="text-[15px] font-medium">{p.name}</p>
-                        <p className="mt-1 text-sm leading-relaxed text-neutral-600">{p.note}</p>
+            {profile && (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Panel title="What to do" subtitle="Practical, in the next five minutes.">
+                  <ol className="space-y-3">
+                    {profile.howTo.map((step, i) => (
+                      <li key={i} className="flex gap-3 text-[15px] leading-relaxed">
+                        <span className="font-mono text-xs text-teal-600">{i + 1}</span>
+                        <span>{step}</span>
                       </li>
                     ))}
-                  </ul>
-                )}
-              </Panel>
-            </div>
+                  </ol>
+                </Panel>
 
-            {data.profile.themes.length > 0 && (
+                <Panel title="Who matters to them" subtitle="Names that recur in what they banked.">
+                  {profile.people.length === 0 ? (
+                    <p className="text-sm text-neutral-500">
+                      Not enough banked yet to say. Treat any name they use as important.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-neutral-100">
+                      {profile.people.map((p) => (
+                        <li key={p.name} className="py-3 first:pt-0 last:pb-0">
+                          <p className="text-[15px] font-medium">{p.name}</p>
+                          <p className="mt-1 text-sm leading-relaxed text-neutral-600">{p.note}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Panel>
+              </div>
+            )}
+
+            {profile && profile.themes.length > 0 && (
               <Panel
                 title="What they return to"
                 subtitle="Their own words, quoted — this is the evidence behind everything above."
               >
                 <div className="grid gap-5 md:grid-cols-2">
-                  {data.profile.themes.map((t) => (
+                  {profile.themes.map((t) => (
                     <div key={t.name}>
                       <Label>{t.name}</Label>
                       <ul className="mt-2 space-y-1.5">
@@ -295,12 +321,12 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
               )}
             </Panel>
 
-            <Card className="bg-neutral-50">
-              <Label>What this profile can&rsquo;t tell you</Label>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                {data.profile.limits}
-              </p>
-            </Card>
+            {profile && (
+              <Card className="bg-neutral-50">
+                <Label>What this profile can&rsquo;t tell you</Label>
+                <p className="mt-2 text-sm leading-relaxed text-neutral-600">{profile.limits}</p>
+              </Card>
+            )}
           </div>
         )}
       </main>
