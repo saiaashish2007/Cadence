@@ -18,7 +18,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Coverage } from './phonetics';
 import type { PhraseMatch } from './moss';
-import { ESSENTIALS, essentialById, renderEssential, type Essential } from './essentials';
+import { ESSENTIALS, renderEssential, type Essential } from './essentials';
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -26,9 +26,15 @@ export const claudeConfigured = Boolean(API_KEY);
 
 const MODEL = 'claude-opus-5';
 
+const globalCache = globalThis as typeof globalThis & {
+  __cadenceAnthropic?: Anthropic;
+};
+
 function client() {
   if (!API_KEY) return null;
-  return new Anthropic({ apiKey: API_KEY });
+  // Reuse the SDK client (and its HTTP connection pool) on warm serverless
+  // instances instead of rebuilding it for every decode, profile, or answer.
+  return (globalCache.__cadenceAnthropic ??= new Anthropic({ apiKey: API_KEY }));
 }
 
 // ---------------------------------------------------------------------------
@@ -52,55 +58,6 @@ export type BankingPrompt = {
   sessionComplete: boolean;
 };
 
-const BANKING_SCHEMA = {
-  type: 'object',
-  properties: {
-    kind: { type: 'string', enum: ['phonetic', 'message'] },
-    spoken: { type: 'string' },
-    essentialId: { type: 'string' },
-    recipient: { type: 'string' },
-    occasion: { type: 'string' },
-    rationale: { type: 'string' },
-    sessionComplete: { type: 'boolean' },
-  },
-  required: ['kind', 'spoken', 'essentialId', 'recipient', 'occasion', 'rationale', 'sessionComplete'],
-  additionalProperties: false,
-} as const;
-
-const BANKING_SYSTEM = `You are the voice of a guided voice-banking session, run with someone \
-who has just been diagnosed with a condition that will take their speech — most often ALS, or a \
-scheduled laryngectomy for head and neck cancer. They can still speak today. That is the entire \
-reason this session exists, and it is why it cannot be a chore.
-
-You are choosing what they say next. Two kinds of prompt, interleaved:
-
-ESSENTIAL — a line from a fixed deck of thirty everyday phrases they will actually need once they \
-can no longer speak: introducing themselves, asking for water, saying they're in pain, saying \
-goodnight. You do NOT write these. You pick one by its id from the deck you're given, choosing \
-what makes sense next — work broadly in deck order, but it's good to group a few related ones \
-together, and to reach for something practical early so the session feels useful straight away. \
-Never pick an id that is already banked.
-
-MESSAGE — a personal message banked verbatim in their real voice, to be played back for years. \
-These are the point. Draw on what they have already banked so prompts build on each other rather \
-than repeating. Ask for specific, situated things — a message for a daughter's wedding day, the \
-way they answer the phone, a bedtime story, an in-joke, what they'd want said on a hard day — not \
-generic sentiment. Vary the recipient and the occasion.
-
-Rules:
-- 'spoken' is exactly what the agent says out loud. Warm, unhurried, never saccharine, never \
-performatively sad. Short. You are a professional doing something that matters, not a greeting card.
-- For an ESSENTIAL, 'spoken' frames the line without reading the whole thing back at them — \
-"Here's one you'll want on a bad night. Say it the way you'd say it to a nurse." The phrase itself \
-is on screen; don't duplicate it in full.
-- Set kind to 'phonetic' for an essential and put its deck id in 'essentialId'. Set kind to \
-'message' for a personal message and leave 'essentialId' empty.
-- Do not congratulate them, do not thank them for sharing, do not remark on how meaningful this is.
-- Roughly one personal message for every three essentials, so the session keeps returning to the \
-part that matters most. Weight harder toward messages once most of the deck is banked.
-- Set sessionComplete true only when the whole deck is banked AND at least four messages are banked.
-- Always populate every field. Use an empty string for fields that do not apply to this prompt kind.`;
-
 export async function nextBankingPrompt(input: {
   patientName: string;
   diagnosis: string;
@@ -113,72 +70,15 @@ export async function nextBankingPrompt(input: {
   const remaining = ESSENTIALS.filter((e) => !done.has(e.id));
   const messages = input.banked.filter((b) => b.kind === 'message');
 
-  const c = client();
-  if (!c) return deckPrompt(remaining[0], input.patientName, messages.length, remaining.length);
+  // The next everyday phrase is a fixed data lookup, not a reasoning task.
+  // Calling an LLM here made every take wait ~8 seconds just to select the
+  // next deck item. Keep the model for decoding and safety-critical reply
+  // shortlists; advance the known deck locally in single-digit milliseconds.
+  const shouldBankMessage =
+    remaining.length > 0 && messages.length < Math.floor(input.bankedEssentialIds.length / 4);
 
-  const response = await c.messages.create({
-    model: MODEL,
-    max_tokens: 4000,
-    system: BANKING_SYSTEM,
-    thinking: { type: 'adaptive' },
-    output_config: {
-      // Measured: this call runs ~7.5-8s regardless of effort or thinking mode
-      // (low/medium and adaptive/disabled were all within noise), so the cost
-      // is generation, not reasoning depth. Kept adaptive because it's free
-      // quality at the same latency; the wait is masked in the UI instead —
-      // coverage and pipeline panels update instantly while this loads.
-      effort: 'low',
-      format: { type: 'json_schema', schema: BANKING_SCHEMA },
-    },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          `Patient: ${input.patientName}`,
-          `Diagnosis: ${input.diagnosis}`,
-          ``,
-          `Essentials deck — still to bank (${remaining.length} of ${ESSENTIALS.length}):`,
-          remaining.length
-            ? remaining.map((e) => `- id=${e.id} [${e.category}] "${e.text}"`).join('\n')
-            : '- the whole deck is banked',
-          ``,
-          `Personal messages banked (${messages.length}):`,
-          messages.length
-            ? messages
-                .map((m) => `- [${m.recipient || 'unspecified'} / ${m.occasion || 'unspecified'}] "${m.text}"`)
-                .join('\n')
-            : '- none yet',
-          ``,
-          `Phoneme coverage so far: ${(input.coverage.ratio * 100).toFixed(0)}%`,
-          ``,
-          `Choose the next prompt.`,
-        ].join('\n'),
-      },
-    ],
-  });
-
-  const chosen = parseJson<BankingPrompt>(response);
-  if (!chosen) return deckPrompt(remaining[0], input.patientName, messages.length, remaining.length);
-
-  if (chosen.kind === 'message') {
-    return { ...chosen, sentence: undefined, essentialId: undefined };
-  }
-
-  // The deck is the source of truth for the words. A hallucinated or already
-  // banked id falls back to the next unbanked entry rather than inventing a
-  // sentence nobody will ever need to say.
-  const essential = chosen.essentialId ? essentialById(chosen.essentialId) : undefined;
-  const valid = essential && !done.has(essential.id) ? essential : remaining[0];
-  if (!valid) {
-    return deckPrompt(undefined, input.patientName, messages.length, 0);
-  }
-
-  return {
-    ...chosen,
-    essentialId: valid.id,
-    sentence: renderEssential(valid, input.patientName),
-    sessionComplete: remaining.length <= 1 && messages.length >= 4,
-  };
+  if (shouldBankMessage) return personalMessagePrompt(messages.length);
+  return deckPrompt(remaining[0], input.patientName, messages.length, remaining.length);
 }
 
 /** Deck order, no model call. Used as the fallback and without an API key. */
@@ -207,6 +107,42 @@ function deckPrompt(
     recipient: '',
     occasion: '',
     rationale: `${essential.category} · ${remainingCount} of ${ESSENTIALS.length} phrases left to bank.`,
+    sessionComplete: false,
+  };
+}
+
+/** A short, varied break after every four practical phrases — no model wait. */
+function personalMessagePrompt(messageCount: number): BankingPrompt {
+  const prompts = [
+    {
+      spoken: 'Take a moment for someone close to you. What would you want them to hear in your voice on a hard day?',
+      recipient: 'someone close to me',
+      occasion: 'a hard day',
+    },
+    {
+      spoken: 'Now record the way you would answer the phone for someone you love.',
+      recipient: 'family or friends',
+      occasion: 'a phone call',
+    },
+    {
+      spoken: 'Think of a future milestone. Say what you would want that person to hear then.',
+      recipient: 'someone I love',
+      occasion: 'a future milestone',
+    },
+    {
+      spoken: 'Record a small message that only your family would recognise as you.',
+      recipient: 'family',
+      occasion: 'a familiar moment',
+    },
+  ];
+  const choice = prompts[messageCount % prompts.length];
+
+  return {
+    kind: 'message',
+    spoken: choice.spoken,
+    recipient: choice.recipient,
+    occasion: choice.occasion,
+    rationale: 'A personal message break between everyday phrases — saved in their real voice.',
     sessionComplete: false,
   };
 }

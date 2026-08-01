@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveSessionContext } from '@/lib/session-context';
 import { coverageOf } from '@/lib/phonetics';
-import { nextBankingPrompt, claudeConfigured } from '@/lib/claude';
+import { nextBankingPrompt } from '@/lib/claude';
 import { ESSENTIALS } from '@/lib/essentials';
 
 export const runtime = 'nodejs';
@@ -35,6 +35,6 @@ export async function POST(req: NextRequest) {
     prompt,
     coverage,
     deck: { total: ESSENTIALS.length, banked: new Set(bankedEssentialIds).size },
-    reasoningLive: claudeConfigured,
+    selection: 'instant-deck',
   });
 }
