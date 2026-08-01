@@ -84,6 +84,7 @@ export const ESSENTIAL_SYSTEM = 'https://cadence.health/fhir/essential-phrase';
 export type BankSession = {
   patientId: string;
   carePlanId: string;
+  conditionId: string;
 };
 
 /**
@@ -95,6 +96,12 @@ export async function createBankSession(input: {
   familyName: string;
   birthDate?: string;
   diagnosis: string;
+  diagnosisDate?: string;
+  pronouns?: string;
+  preferredLanguage?: string;
+  supportPersonName?: string;
+  supportPersonPhone?: string;
+  communicationNotes?: string;
 }): Promise<BankSession | null> {
   const medplum = await getMedplum();
   if (!medplum) return null;
@@ -103,6 +110,48 @@ export async function createBankSession(input: {
     resourceType: 'Patient',
     name: [{ given: [input.givenName], family: input.familyName }],
     birthDate: input.birthDate,
+    extension: input.pronouns
+      ? [
+          {
+            url: 'http://hl7.org/fhir/StructureDefinition/individual-pronouns',
+            valueString: input.pronouns,
+          },
+        ]
+      : undefined,
+    communication: input.preferredLanguage
+      ? [{ language: { text: input.preferredLanguage }, preferred: true }]
+      : undefined,
+    contact: input.supportPersonName
+      ? [
+          {
+            relationship: [{ text: 'Primary support person' }],
+            name: { text: input.supportPersonName },
+            telecom: input.supportPersonPhone
+              ? [{ system: 'phone', value: input.supportPersonPhone }]
+              : undefined,
+          },
+        ]
+      : undefined,
+  });
+
+  // A diagnosis belongs in a Condition, not only as unstructured CarePlan
+  // text. The onset date is especially important for progressive conditions:
+  // it anchors the baseline recordings to the clinical timeline.
+  const condition = await medplum.createResource({
+    resourceType: 'Condition',
+    clinicalStatus: {
+      coding: [
+        {
+          system: 'http://terminology.hl7.org/CodeSystem/condition-clinical',
+          code: 'active',
+          display: 'Active',
+        },
+      ],
+    },
+    code: { text: input.diagnosis },
+    subject: { reference: `Patient/${patient.id}` },
+    onsetDateTime: input.diagnosisDate,
+    recordedDate: new Date().toISOString(),
   });
 
   const carePlan = await medplum.createResource({
@@ -128,7 +177,10 @@ export async function createBankSession(input: {
         text: 'Communication preservation',
       },
     ],
-    addresses: [{ display: input.diagnosis }],
+    addresses: [{ reference: `Condition/${condition.id}`, display: input.diagnosis }],
+    note: input.communicationNotes
+      ? [{ text: `Communication notes: ${input.communicationNotes}` }]
+      : undefined,
     activity: [
       { detail: { status: 'in-progress', kind: 'Task', description: 'Phonetic corpus capture for synthetic voice' } },
       { detail: { status: 'in-progress', kind: 'Task', description: 'Personal message banking' } },
@@ -136,7 +188,7 @@ export async function createBankSession(input: {
     ],
   });
 
-  return { patientId: patient.id!, carePlanId: carePlan.id! };
+  return { patientId: patient.id!, carePlanId: carePlan.id!, conditionId: condition.id! };
 }
 
 /** Persist one recording: the audio as Media, the words as Communication. */
@@ -331,13 +383,14 @@ export async function readVoiceBank(patientId: string) {
   const medplum = await getMedplum();
   if (!medplum) return null;
 
-  const [patient, carePlans, media, communications, observations] = await Promise.all([
+  const [patient, conditions, carePlans, media, communications, observations] = await Promise.all([
     medplum.readResource('Patient', patientId),
+    medplum.searchResources('Condition', { subject: `Patient/${patientId}` }),
     medplum.searchResources('CarePlan', { subject: `Patient/${patientId}` }),
     medplum.searchResources('Media', { subject: `Patient/${patientId}`, _count: '100' }),
     medplum.searchResources('Communication', { subject: `Patient/${patientId}`, _count: '100' }),
     medplum.searchResources('Observation', { subject: `Patient/${patientId}` }),
   ]);
 
-  return { patient, carePlans, media, communications, observations };
+  return { patient, conditions, carePlans, media, communications, observations };
 }

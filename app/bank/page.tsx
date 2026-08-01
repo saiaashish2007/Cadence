@@ -10,6 +10,7 @@ import {
   Label,
   Panel,
   Percent,
+  Select,
   SiteFooter,
   SiteHeader,
   StatusDot,
@@ -38,6 +39,18 @@ type Prompt = {
 
 type Deck = { total: number; banked: number };
 
+const DIAGNOSES = [
+  'Amyotrophic lateral sclerosis (ALS)',
+  'Laryngectomy or planned laryngectomy',
+  'Head and neck cancer',
+  'Parkinson’s disease',
+  'Multiple sclerosis (MS)',
+  'Stroke or aphasia',
+  'Cerebral palsy',
+  'Traumatic brain injury',
+  'Other communication-impacting condition',
+] as const;
+
 type CoverageResult = {
   source: string;
   active: boolean;
@@ -56,9 +69,15 @@ type CoverageResult = {
 export default function BankPage() {
   const [session, setSession] = useState<CadenceSession | null>(null);
   const [patientName, setPatientName] = useState('');
-  const [diagnosis, setDiagnosis] = useState(
-    'Amyotrophic lateral sclerosis (ALS), newly diagnosed'
-  );
+  const [diagnosis, setDiagnosis] = useState<(typeof DIAGNOSES)[number]>('Amyotrophic lateral sclerosis (ALS)');
+  const [otherDiagnosis, setOtherDiagnosis] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [diagnosisDate, setDiagnosisDate] = useState('');
+  const [pronouns, setPronouns] = useState('');
+  const [preferredLanguage, setPreferredLanguage] = useState('English');
+  const [supportPersonName, setSupportPersonName] = useState('');
+  const [supportPersonPhone, setSupportPersonPhone] = useState('');
+  const [communicationNotes, setCommunicationNotes] = useState('');
 
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -138,13 +157,29 @@ export default function BankPage() {
 
   async function beginSession(e: React.FormEvent) {
     e.preventDefault();
+    const diagnosisLabel =
+      diagnosis === 'Other communication-impacting condition' ? otherDiagnosis.trim() : diagnosis;
+    if (!diagnosisLabel) {
+      setError('Please enter the diagnosis or condition.');
+      return;
+    }
     setBusy('Provisioning care plan…');
     setError(null);
     try {
       const res = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patientName, diagnosis }),
+        body: JSON.stringify({
+          patientName,
+          diagnosis: diagnosisLabel,
+          birthDate,
+          diagnosisDate,
+          pronouns,
+          preferredLanguage,
+          supportPersonName,
+          supportPersonPhone,
+          communicationNotes,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'could not start session');
@@ -153,9 +188,17 @@ export default function BankPage() {
       const next: CadenceSession = {
         id: json.session.id,
         patientName,
-        diagnosis,
+        diagnosis: diagnosisLabel,
+        birthDate: birthDate || undefined,
+        diagnosisDate: diagnosisDate || undefined,
+        pronouns: pronouns || undefined,
+        preferredLanguage: preferredLanguage || undefined,
+        supportPersonName: supportPersonName || undefined,
+        supportPersonPhone: supportPersonPhone || undefined,
+        communicationNotes: communicationNotes || undefined,
         patientId: json.session.fhir?.patientId,
         carePlanId: json.session.fhir?.carePlanId,
+        conditionId: json.session.fhir?.conditionId,
         fhirLinked: Boolean(json.fhirLinked),
         createdAt: now,
         updatedAt: now,
@@ -263,31 +306,113 @@ export default function BankPage() {
       <div className="flex min-h-screen flex-col">
         <SiteHeader cta={{ href: '/decode', label: 'Open decoder' }} />
 
-        <main className="mx-auto w-full max-w-xl flex-1 px-6 py-16">
+        <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-16">
           <Label className="text-teal-700">New session</Label>
           <h1 className="mt-4 text-3xl leading-tight tracking-tight md:text-4xl">
             The most important recording session{' '}
             <em className="font-serif italic text-teal-700">of your life.</em>
           </h1>
-          <p className="mt-4 text-[15px] leading-relaxed text-neutral-600">
-            This takes about twenty minutes. You can stop at any point and come back — everything
-            banked so far is saved to the record.
+          <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-neutral-600">
+            This takes about twenty minutes. Start with the details that make the voice bank useful
+            to the next care team — everything here is written to the patient record.
           </p>
 
           <form onSubmit={beginSession} className="mt-10 space-y-5">
-            <Field
-              label="Patient name"
-              value={patientName}
-              onChange={(e) => setPatientName(e.target.value)}
-              placeholder="Ellen Rourke"
-              required
-            />
-            <Field
-              label="Diagnosis"
-              value={diagnosis}
-              onChange={(e) => setDiagnosis(e.target.value)}
-              required
-            />
+            <Card className="bg-neutral-50">
+              <Label className="text-teal-700">Patient &amp; diagnosis</Label>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <Field
+                  label="Patient name"
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                  placeholder="Ellen Rourke"
+                  required
+                />
+                <Field
+                  label="Date of birth"
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  hint="Optional"
+                />
+                <Select
+                  label="Diagnosis or use case"
+                  value={diagnosis}
+                  onChange={(e) => setDiagnosis(e.target.value as (typeof DIAGNOSES)[number])}
+                >
+                  {DIAGNOSES.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </Select>
+                <Field
+                  label="Diagnosis date"
+                  type="date"
+                  value={diagnosisDate}
+                  onChange={(e) => setDiagnosisDate(e.target.value)}
+                  hint="Optional — anchors the speech baseline"
+                />
+              </div>
+
+              {diagnosis === 'Other communication-impacting condition' && (
+                <div className="mt-4">
+                  <Field
+                    label="Diagnosis or condition"
+                    value={otherDiagnosis}
+                    onChange={(e) => setOtherDiagnosis(e.target.value)}
+                    placeholder="e.g. progressive supranuclear palsy"
+                    required
+                  />
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <Label>Communication &amp; support</Label>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <Field
+                  label="Pronouns"
+                  value={pronouns}
+                  onChange={(e) => setPronouns(e.target.value)}
+                  placeholder="she/her"
+                  hint="Optional"
+                />
+                <Field
+                  label="Preferred language"
+                  value={preferredLanguage}
+                  onChange={(e) => setPreferredLanguage(e.target.value)}
+                  placeholder="English"
+                />
+                <Field
+                  label="Primary support person"
+                  value={supportPersonName}
+                  onChange={(e) => setSupportPersonName(e.target.value)}
+                  placeholder="Maya Rourke"
+                  hint="Optional"
+                />
+                <Field
+                  label="Support person phone"
+                  type="tel"
+                  value={supportPersonPhone}
+                  onChange={(e) => setSupportPersonPhone(e.target.value)}
+                  placeholder="(555) 555-0123"
+                  hint="Optional"
+                />
+              </div>
+              <label className="mt-4 block">
+                <Label>Important communication notes</Label>
+                <textarea
+                  value={communicationNotes}
+                  onChange={(e) => setCommunicationNotes(e.target.value)}
+                  placeholder="Anything a new caregiver should know about how this person communicates."
+                  className="mt-2 min-h-24 w-full rounded-md border border-neutral-200 bg-white px-3.5 py-2.5 text-sm placeholder:text-neutral-400 focus:border-teal-500 focus:outline-none"
+                />
+                <span className="mt-1.5 block text-xs text-neutral-500">
+                  Optional — saved with the communication preservation plan.
+                </span>
+              </label>
+            </Card>
 
             <Card className="bg-neutral-50">
               <Label>Consent</Label>

@@ -41,8 +41,16 @@ export type CadenceSession = {
   id: string;
   patientName: string;
   diagnosis: string;
+  birthDate?: string;
+  diagnosisDate?: string;
+  pronouns?: string;
+  preferredLanguage?: string;
+  supportPersonName?: string;
+  supportPersonPhone?: string;
+  communicationNotes?: string;
   patientId?: string;
   carePlanId?: string;
+  conditionId?: string;
   fhirLinked: boolean;
   createdAt: string;
   updatedAt: string;

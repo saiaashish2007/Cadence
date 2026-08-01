@@ -9,6 +9,7 @@ import { projectFhir } from '@/lib/fhir-projection';
 type Chart = {
   source: 'medplum' | 'projected';
   patient?: unknown;
+  conditions?: unknown[];
   carePlans?: unknown[];
   media?: unknown[];
   communications?: unknown[];
@@ -72,6 +73,11 @@ export default function ChartPage({ params }: { params: Promise<{ id: string }> 
   const groups: { title: string; note: string; data: unknown }[] = chart
     ? [
         { title: 'Patient', note: 'the person banking their voice', data: chart.patient },
+        {
+          title: 'Condition',
+          note: 'the diagnosis and when it entered the clinical timeline',
+          data: chart.conditions,
+        },
         {
           title: 'CarePlan',
           note: 'communication preservation — the plan the care team will see',

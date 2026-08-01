@@ -37,7 +37,7 @@ export type Session = {
   createdAt: string;
   recordings: Recording[];
   /** Medplum ids, when configured. */
-  fhir?: { patientId: string; carePlanId: string };
+  fhir?: { patientId: string; carePlanId: string; conditionId: string };
   coverageResult?: unknown;
 };
 
@@ -64,7 +64,7 @@ const audioCache: Map<string, { contentType: string; audio: Buffer }> = (globalS
 export function createSession(input: {
   patientName: string;
   diagnosis: string;
-  fhir?: { patientId: string; carePlanId: string };
+  fhir?: { patientId: string; carePlanId: string; conditionId: string };
 }): Session {
   const session: Session = {
     // Reuse the Medplum patient id when there is one, so a session id is

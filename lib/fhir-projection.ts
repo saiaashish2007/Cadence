@@ -17,7 +17,41 @@ export function projectFhir(session: CadenceSession) {
       resourceType: 'Patient',
       id: session.patientId ?? session.id,
       name: [{ text: session.patientName }],
+      birthDate: session.birthDate,
+      extension: session.pronouns
+        ? [
+            {
+              url: 'http://hl7.org/fhir/StructureDefinition/individual-pronouns',
+              valueString: session.pronouns,
+            },
+          ]
+        : undefined,
+      communication: session.preferredLanguage
+        ? [{ language: { text: session.preferredLanguage }, preferred: true }]
+        : undefined,
+      contact: session.supportPersonName
+        ? [
+            {
+              relationship: [{ text: 'Primary support person' }],
+              name: { text: session.supportPersonName },
+              telecom: session.supportPersonPhone
+                ? [{ system: 'phone', value: session.supportPersonPhone }]
+                : undefined,
+            },
+          ]
+        : undefined,
     },
+    conditions: [
+      {
+        resourceType: 'Condition',
+        id: session.conditionId ?? `${session.id}-condition`,
+        clinicalStatus: { text: 'Active' },
+        code: { text: session.diagnosis },
+        subject: patientRef,
+        onsetDateTime: session.diagnosisDate,
+        recordedDate: session.createdAt,
+      },
+    ],
     carePlans: [
       {
         resourceType: 'CarePlan',
@@ -25,7 +59,10 @@ export function projectFhir(session: CadenceSession) {
         intent: 'plan',
         title: 'Communication preservation — voice and message banking',
         subject: patientRef,
-        addresses: [{ display: session.diagnosis }],
+        addresses: [{ reference: `Condition/${session.conditionId ?? `${session.id}-condition`}`, display: session.diagnosis }],
+        note: session.communicationNotes
+          ? [{ text: `Communication notes: ${session.communicationNotes}` }]
+          : undefined,
         activity: [
           {
             detail: {
