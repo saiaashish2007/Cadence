@@ -13,7 +13,7 @@
  * index is there for the caregiver later.
  */
 
-import { MossClient, type SessionIndex, type QueryResultDocumentInfo } from '@moss-dev/moss';
+import type { MossClient, SessionIndex, QueryResultDocumentInfo } from '@moss-dev/moss';
 
 const PROJECT_ID = process.env.MOSS_PROJECT_ID;
 const PROJECT_KEY = process.env.MOSS_PROJECT_KEY;
@@ -33,9 +33,14 @@ const globalMoss = globalThis as typeof globalThis & {
 
 const sessions: Map<string, SessionIndex> = (globalMoss.__cadenceMossSessions ??= new Map());
 
-function getClient(): MossClient | null {
+async function getClient(): Promise<MossClient | null> {
   if (!mossConfigured) return null;
-  globalMoss.__cadenceMossClient ??= new MossClient(PROJECT_ID!, PROJECT_KEY!);
+  if (!globalMoss.__cadenceMossClient) {
+    // Keep the native N-API module out of Next.js's route-data collection.
+    // It is loaded only when a Moss-backed request arrives.
+    const { MossClient } = await import('@moss-dev/moss');
+    globalMoss.__cadenceMossClient = new MossClient(PROJECT_ID!, PROJECT_KEY!);
+  }
   return globalMoss.__cadenceMossClient;
 }
 
@@ -49,7 +54,7 @@ export function indexName(patientId: string) {
  * previous session. Cached per patient so repeat queries stay in-memory.
  */
 export async function openBank(patientId: string): Promise<SessionIndex | null> {
-  const c = getClient();
+  const c = await getClient();
   if (!c) return null;
 
   const name = indexName(patientId);
